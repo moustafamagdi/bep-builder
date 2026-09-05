@@ -81,6 +81,30 @@ export async function deleteCloudProject(id){
   await api(`/rest/v1/bep_projects?id=eq.${encodeURIComponent(id)}`,{method:'DELETE',token:session.access_token,headers:{Prefer:'return=minimal'}});
 }
 
+const storagePath=path=>path.split('/').map(encodeURIComponent).join('/');
+
+export async function uploadAttachment(file,path,{upsert=false}={}){
+  const session=await activeSession();
+  const response=await fetch(`${SUPABASE_URL}/storage/v1/object/bep-attachments/${storagePath(path)}`,{
+    method:'POST',body:file,headers:{apikey:SUPABASE_PUBLISHABLE_KEY,Authorization:`Bearer ${session.access_token}`,'Content-Type':file.type||'application/octet-stream','x-upsert':String(upsert)}
+  });
+  const data=await response.json().catch(()=>null);
+  if(!response.ok)throw new Error(data?.message||data?.error||`Upload failed (${response.status}).`);
+  return data;
+}
+
+export async function downloadAttachment(path){
+  const session=await activeSession();
+  const response=await fetch(`${SUPABASE_URL}/storage/v1/object/authenticated/bep-attachments/${storagePath(path)}`,{headers:{apikey:SUPABASE_PUBLISHABLE_KEY,Authorization:`Bearer ${session.access_token}`}});
+  if(!response.ok){const data=await response.json().catch(()=>null);throw new Error(data?.message||data?.error||`Download failed (${response.status}).`);}
+  return response.blob();
+}
+
+export async function deleteAttachment(path){
+  const session=await activeSession();
+  await api('/storage/v1/object/bep-attachments',{method:'DELETE',token:session.access_token,body:{prefixes:[path]}});
+}
+
 export function mergeProjectSets(localProjects,cloudProjects){
   const merged=new Map();
   for(const project of [...cloudProjects,...localProjects]){

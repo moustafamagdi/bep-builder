@@ -17,6 +17,9 @@ A browser-based Post-Contract BIM Execution Plan builder for a main contractor. 
 - Input escaping, backup validation and automated content/state tests.
 - Email/password authentication, newest-version project merging and per-user Row Level Security.
 - Private Supabase Storage bucket prepared for project attachments.
+- In-app private attachment upload, download and deletion with automatic appendix registration.
+- Per-project company logo upload and print-cover integration.
+- Advanced responsibility, information exchange, naming, LOIN, QA/QC, asset requirement and decision schedules.
 
 ## Cloudflare Pages
 

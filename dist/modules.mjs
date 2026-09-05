@@ -49,14 +49,21 @@ export const statuses = [
 export const listSchemas = {
   parties:{label:'Parties',columns:[['name','Organization'],['role','Role'],['code','Code'],['responsibility','Responsibility']]},
   team:{label:'Project team',columns:[['name','Name'],['organization','Organization'],['role','Role'],['email','Email']]},
-  references:{label:'References & requirements',columns:[['title','Title'],['code','Code'],['revision','Revision'],['status','Status'],['source','Source']]},
-  uses:{label:'BIM uses',columns:[['name','Use'],['status','Status'],['owner','Owner'],['output','Output']]},
+  responsibilities:{label:'Responsibility matrix',columns:[['activity','Activity / deliverable'],['responsible','Responsible'],['accountable','Accountable'],['consulted','Consulted'],['informed','Informed']]},
+  references:{label:'References & requirements',columns:[['title','Title'],['code','Code'],['revision','Revision'],['status','Status','select',['Adopted','For review','Superseded','Not received']],['source','Source']]},
+  uses:{label:'BIM uses',columns:[['name','Use'],['status','Status','select',['Required','Optional','Pending','Not applicable']],['owner','Owner'],['output','Output']]},
   software:{label:'Software',columns:[['use','Use'],['product','Product'],['version','Version'],['exchange','Exchange format']]},
+  exchanges:{label:'Information exchange schedule',columns:[['exchange','Exchange'],['milestone','Milestone'],['sender','Sender'],['receiver','Receiver'],['format','Format'],['status','Status','select',['Planned','In progress','Submitted','Accepted','Rejected']]]},
   models:{label:'Model register',columns:[['code','Code'],['discipline','Discipline'],['zone','Building / zone'],['producer','Producer']]},
-  milestones:{label:'Milestones',columns:[['name','Milestone'],['gate','Stage gate'],['date','Date'],['output','Outputs']]},
-  deliverables:{label:'Deliverables',columns:[['title','Deliverable'],['producer','Producer'],['date','Date'],['format','Format'],['acceptance','Acceptance']]},
-  clashes:{label:'Clash tests',columns:[['name','Test'],['setA','Set A'],['setB','Set B'],['type','Type'],['tolerance','Tolerance / clearance'],['owner','Owner']]},
+  namingFields:{label:'Naming convention fields',columns:[['order','Order','number'],['field','Field'],['codeList','Permitted values / code list'],['example','Example']]},
+  loin:{label:'Level of information need matrix',columns:[['element','Element / system'],['milestone','Milestone'],['geometry','Geometrical information'],['information','Alphanumeric information'],['documentation','Documentation'],['responsible','Responsible party']]},
+  milestones:{label:'Milestones',columns:[['name','Milestone'],['gate','Stage gate'],['date','Date','date'],['output','Outputs']]},
+  deliverables:{label:'Deliverables',columns:[['title','Deliverable'],['producer','Producer'],['date','Date','date'],['format','Format'],['acceptance','Acceptance']]},
+  clashes:{label:'Clash tests',columns:[['name','Test'],['setA','Set A'],['setB','Set B'],['type','Type','select',['Hard','Clearance','Duplicate','Workflow']],['tolerance','Tolerance / clearance'],['owner','Owner']]},
   meetings:{label:'Meetings',columns:[['name','Type'],['frequency','Frequency'],['participants','Participants'],['output','Output']]},
+  qaChecks:{label:'Model QA/QC schedule',columns:[['check','Check'],['frequency','Frequency'],['checker','Checker'],['acceptance','Acceptance criterion'],['evidence','Evidence / record']]},
+  assetRequirements:{label:'Asset information requirements',columns:[['asset','Asset / system'],['property','Required property'],['source','Source / supplier'],['milestone','Milestone'],['format','Format'],['responsible','Responsible party']]},
+  decisions:{label:'Decision & assumption register',columns:[['reference','Reference'],['subject','Subject'],['decision','Decision / assumption'],['owner','Owner'],['dueDate','Due date','date'],['status','Status','select',['Open','Proposed','Agreed','Closed']]]},
   appendices:{label:'Appendices',columns:[['title','Title'],['reference','Reference'],['status','Status'],['location','File / link']]}
 };
 
@@ -80,10 +87,10 @@ export const fieldGroups = {
 };
 
 export const defaultLists = () => ({
-  parties:[],team:[],references:[],
+  parties:[],team:[],responsibilities:[{activity:'BEP management',responsible:'BIM Manager',accountable:'Project Manager',consulted:'Discipline BIM Leads',informed:'Project team'},{activity:'Discipline model production',responsible:'Task team',accountable:'Discipline lead',consulted:'BIM coordination team',informed:'Main contractor'}],references:[],
   uses:[{name:'Construction coordination',status:'Required',owner:'Main contractor',output:'Coordinated model and issue register'},{name:'Information delivery planning',status:'Required',owner:'Main contractor',output:'MIDP / TIDPs'}],
-  software:[],models:[],milestones:[],deliverables:[],clashes:[],
-  meetings:[{name:'BIM coordination meeting',frequency:'Weekly',participants:'Relevant task teams',output:'Minutes and updated issue register'}],appendices:[]
+  software:[],exchanges:[],models:[],namingFields:[{order:'1',field:'Project',codeList:'Approved project code',example:'PRJ'},{order:'2',field:'Originator',codeList:'Approved organization code',example:'ORG'},{order:'3',field:'Volume / system',codeList:'Project breakdown code',example:'ZZ'}],loin:[],milestones:[],deliverables:[],clashes:[],
+  meetings:[{name:'BIM coordination meeting',frequency:'Weekly',participants:'Relevant task teams',output:'Minutes and updated issue register'}],qaChecks:[{check:'Coordinates, levels and units',frequency:'Before every exchange',checker:'Discipline BIM Lead',acceptance:'Matches approved project reference',evidence:'Model QA checklist'},{check:'Naming and document metadata',frequency:'Before every exchange',checker:'Information Manager',acceptance:'Complies with approved convention',evidence:'Submission check record'}],assetRequirements:[],decisions:[],appendices:[]
 });
 
 export function defaultModuleStates(){return Object.fromEntries(modules.map(m=>[m.id,m.required?'required':'not_applicable']));}
