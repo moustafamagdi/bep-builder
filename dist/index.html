@@ -1,48 +1,48 @@
 <!doctype html>
-<html lang="ar" dir="rtl">
+<html lang="en" dir="ltr">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta name="description" content="منشئ خطة تنفيذ BIM للمقاول الرئيسي بعد التعاقد.">
+  <meta name="description" content="Post-contract BIM Execution Plan builder for main contractors.">
   <meta name="robots" content="noindex,nofollow">
   <title>BEP Studio</title>
   <link rel="stylesheet" href="./styles.css">
 </head>
 <body>
-  <a class="skip-link" href="#main">انتقل إلى المحتوى</a>
+  <a class="skip-link" href="#main">Skip to content</a>
   <header class="topbar screen-only">
-    <button class="brand" id="go-home" aria-label="العودة إلى المشروعات"><span class="brand-mark">B</span><span><strong>BEP STUDIO</strong><small>POST-CONTRACT / MAIN CONTRACTOR</small></span></button>
-    <div class="project-indicator"><span id="save-status">محفوظ محليًا</span><strong id="current-project-name">المشروعات</strong></div>
+    <button class="brand" id="go-home" aria-label="Return to projects"><span class="brand-mark">B</span><span><strong>BEP STUDIO</strong><small>POST-CONTRACT / MAIN CONTRACTOR</small></span></button>
+    <div class="project-indicator"><span id="save-status">Saved locally</span><strong id="current-project-name">Projects</strong></div>
     <div class="top-actions">
-      <button class="button ghost" id="backup-all">نسخة احتياطية</button>
-      <label class="button ghost" for="restore-all">استعادة<input id="restore-all" type="file" accept=".json,application/json" hidden></label>
-      <button class="button primary editor-only" id="print">طباعة / PDF</button>
+      <button class="button ghost" id="backup-all">Back up</button>
+      <label class="button ghost" for="restore-all">Restore<input id="restore-all" type="file" accept=".json,application/json" hidden></label>
+      <button class="button primary editor-only" id="print">Print / PDF</button>
     </div>
   </header>
 
   <main id="main">
     <section id="dashboard" class="dashboard screen-only">
-      <div class="dashboard-head"><div><span class="eyebrow">PROJECT LIBRARY</span><h1>خطط تنفيذ المشروعات</h1><p>أنشئ BEP، راجع النواقص، وثبّت كل إصدار قبل مشاركته.</p></div><button class="button primary large" id="new-project">+ مشروع جديد</button></div>
+      <div class="dashboard-head"><div><span class="eyebrow">PROJECT LIBRARY</span><h1>BIM Execution Plans</h1><p>Create a BEP, resolve gaps, and freeze each issue before sharing it.</p></div><button class="button primary large" id="new-project">+ New project</button></div>
       <div class="summary-grid" id="portfolio-summary"></div>
-      <div class="projects-head"><h2>المشروعات</h2><label class="search">بحث<input id="project-search" type="search" placeholder="اسم أو كود المشروع"></label></div>
+      <div class="projects-head"><h2>Projects</h2><label class="search">Search<input id="project-search" type="search" placeholder="Project name or code"></label></div>
       <div id="project-list" class="project-grid"></div>
     </section>
 
     <section id="editor" class="editor" hidden>
       <aside class="sidebar screen-only">
-        <div class="readiness-card"><div class="readiness-top"><span>جاهزية الإصدار</span><strong id="readiness-value">0%</strong></div><div class="progress"><i id="readiness-bar"></i></div><small id="readiness-label">توجد بيانات مطلوبة</small></div>
-        <nav id="editor-nav" aria-label="أقسام إعداد الخطة">
-          <button data-view="project" class="active"><span>01</span>المشروع والإصدار</button>
-          <button data-view="organization"><span>02</span>الأطراف والفريق</button>
-          <button data-view="information"><span>03</span>المعلومات والمنصات</button>
-          <button data-view="technical"><span>04</span>الموديلات والمعايير</button>
-          <button data-view="coordination"><span>05</span>التنسيق والتسليم</button>
-          <button data-view="modules"><span>06</span>محتوى الـBEP</button>
-          <button data-view="review"><span>07</span>المراجعة والإصدارات</button>
-          <button data-view="appearance"><span>08</span>الهوية والطباعة</button>
-          <button data-view="preview"><span>09</span>معاينة المستند</button>
+        <div class="readiness-card"><div class="readiness-top"><span>Issue readiness</span><strong id="readiness-value">0%</strong></div><div class="progress"><i id="readiness-bar"></i></div><small id="readiness-label">Required information is missing</small></div>
+        <nav id="editor-nav" aria-label="BEP setup sections">
+          <button data-view="project" class="active"><span>01</span>Project &amp; issue</button>
+          <button data-view="organization"><span>02</span>Parties &amp; team</button>
+          <button data-view="information"><span>03</span>Information &amp; platforms</button>
+          <button data-view="technical"><span>04</span>Models &amp; standards</button>
+          <button data-view="coordination"><span>05</span>Coordination &amp; delivery</button>
+          <button data-view="modules"><span>06</span>BEP content</button>
+          <button data-view="review"><span>07</span>Review &amp; issues</button>
+          <button data-view="appearance"><span>08</span>Branding &amp; print</button>
+          <button data-view="preview"><span>09</span>Document preview</button>
         </nav>
-        <button class="button ghost full" id="back-dashboard">العودة للمشروعات</button>
+        <button class="button ghost full" id="back-dashboard">Back to projects</button>
       </aside>
 
       <section class="workarea screen-only">
@@ -51,16 +51,16 @@
       </section>
 
       <section id="document-pane" class="document-pane">
-        <div class="document-toolbar screen-only"><span>LIVE BEP / ENGLISH</span><button class="button ghost" id="close-preview">العودة للتحرير</button></div>
+        <div class="document-toolbar screen-only"><span>LIVE BEP / ENGLISH</span><button class="button ghost" id="close-preview">Back to editor</button></div>
         <article id="document" class="document" lang="en" dir="ltr"></article>
       </section>
     </section>
   </main>
 
   <dialog id="project-dialog">
-    <form method="dialog" id="new-project-form"><button class="dialog-close" value="cancel" aria-label="إغلاق">×</button><span class="eyebrow">NEW PROJECT</span><h2>مشروع BEP جديد</h2><label>اسم المشروع<input name="name" required maxlength="180" autofocus></label><label>كود المشروع<input name="code" required maxlength="70"></label><label>المقاول الرئيسي<input name="contractor" maxlength="180"></label><div class="dialog-actions"><button class="button ghost" value="cancel">إلغاء</button><button class="button primary" value="create">إنشاء المشروع</button></div></form>
+    <form method="dialog" id="new-project-form"><button class="dialog-close" value="cancel" aria-label="Close">×</button><span class="eyebrow">NEW PROJECT</span><h2>New BEP project</h2><label>Project name<input name="name" required maxlength="180" autofocus></label><label>Project code<input name="code" required maxlength="70"></label><label>Main contractor<input name="contractor" maxlength="180"></label><div class="dialog-actions"><button class="button ghost" value="cancel">Cancel</button><button class="button primary" value="create">Create project</button></div></form>
   </dialog>
-  <dialog id="confirm-dialog"><form method="dialog"><h2 id="confirm-title">تأكيد الإجراء</h2><p id="confirm-message"></p><div class="dialog-actions"><button class="button ghost" value="cancel">إلغاء</button><button class="button danger" value="confirm">تأكيد</button></div></form></dialog>
+  <dialog id="confirm-dialog"><form method="dialog"><h2 id="confirm-title">Confirm action</h2><p id="confirm-message"></p><div class="dialog-actions"><button class="button ghost" value="cancel">Cancel</button><button class="button danger" value="confirm">Confirm</button></div></form></dialog>
   <div id="toast" class="toast screen-only" role="status" aria-live="polite" hidden></div>
   <script type="module" src="./app.mjs"></script>
 </body>

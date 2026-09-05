@@ -20,19 +20,19 @@ export function loadWorkspace(){
 }
 export function saveWorkspace(workspace){localStorage.setItem(STORAGE_KEY,JSON.stringify(workspace));}
 export function validateWorkspace(raw){
-  if(!raw||raw.schemaVersion!==2||!Array.isArray(raw.projects)||raw.projects.length>100)throw new Error('ملف النسخة الاحتياطية غير متوافق.');
+  if(!raw||raw.schemaVersion!==2||!Array.isArray(raw.projects)||raw.projects.length>100)throw new Error('Incompatible backup file.');
   const ids=new Set();
   for(const p of raw.projects){
-    if(!p||typeof p.id!=='string'||ids.has(p.id)||!p.fields||!p.lists||!p.moduleStates||!p.style||!Array.isArray(p.releases))throw new Error('بيانات مشروع غير صالحة.');
-    ids.add(p.id);for(const [k,v] of Object.entries(p.fields)){if(typeof v!=='string'||v.length>10000)throw new Error(`قيمة غير صالحة: ${k}`);}
-    for(const key of Object.keys(defaultLists()))if(!Array.isArray(p.lists[key])||p.lists[key].length>500)throw new Error(`جدول غير صالح: ${key}`);
-    for(const m of modules)if(!['required','optional','pending','not_applicable'].includes(p.moduleStates[m.id]))throw new Error(`حالة قسم غير صالحة: ${m.id}`);
-    if(!/^#[0-9a-f]{6}$/i.test(p.style.accent)||!['sans','serif'].includes(p.style.font))throw new Error('إعدادات هوية غير صالحة.');
+    if(!p||typeof p.id!=='string'||ids.has(p.id)||!p.fields||!p.lists||!p.moduleStates||!p.style||!Array.isArray(p.releases))throw new Error('Invalid project data.');
+    ids.add(p.id);for(const [k,v] of Object.entries(p.fields)){if(typeof v!=='string'||v.length>10000)throw new Error(`Invalid value: ${k}`);}
+    for(const key of Object.keys(defaultLists()))if(!Array.isArray(p.lists[key])||p.lists[key].length>500)throw new Error(`Invalid table: ${key}`);
+    for(const m of modules)if(!['required','optional','pending','not_applicable'].includes(p.moduleStates[m.id]))throw new Error(`Invalid module status: ${m.id}`);
+    if(!/^#[0-9a-f]{6}$/i.test(p.style.accent)||!['sans','serif'].includes(p.style.font))throw new Error('Invalid document identity settings.');
   }
   return raw;
 }
 export function migrateLegacySnapshot(raw){
-  if(!raw||raw.version!==1||!raw.fields||!raw.enabled)throw new Error('ملف النسخة الاحتياطية غير متوافق.');
+  if(!raw||raw.version!==1||!raw.fields||!raw.enabled)throw new Error('Incompatible backup file.');
   const p=newProject({
     projectName:String(raw.fields.project||''),projectCode:String(raw.fields.code||''),description:String(raw.fields.description||''),location:String(raw.fields.location||''),contractor:String(raw.fields.contractor||''),client:String(raw.fields.client||''),consultant:String(raw.fields.consultant||''),documentCode:String(raw.fields.documentCode||''),revision:String(raw.fields.revision||'P01'),issueDate:String(raw.fields.date||''),preparedBy:String(raw.fields.preparedBy||''),cde:String(raw.fields.cde||'')
   });
@@ -48,25 +48,25 @@ export function createRelease(project){
   const snapshot={fields:structuredClone(project.fields),lists:structuredClone(project.lists),moduleStates:structuredClone(project.moduleStates),notes:structuredClone(project.notes),style:structuredClone(project.style)};
   project.releases.push({id:uid(),number,revision:project.fields.revision||`R${number}`,issueDate:project.fields.issueDate||at.slice(0,10),createdAt:at,readiness:reviewProject(project).score,snapshot});project.updatedAt=at;return number;
 }
-export function restoreRelease(project,id){const rel=project.releases.find(r=>r.id===id);if(!rel)throw new Error('الإصدار غير موجود.');Object.assign(project,structuredClone(rel.snapshot));project.updatedAt=new Date().toISOString();}
+export function restoreRelease(project,id){const rel=project.releases.find(r=>r.id===id);if(!rel)throw new Error('Issue not found.');Object.assign(project,structuredClone(rel.snapshot));project.updatedAt=new Date().toISOString();}
 
 const requiredFields=['projectName','projectCode','description','documentCode','revision','issueDate','issuePurpose','preparedBy','contractor','client','consultant','designResponsibility','informationRole','coordinationScope','cde','reviewWorkflow','namingPattern','drawingStrategy','crs','verticalDatum','units','loinSystem','coordinationCycle','issueWorkflow','asBuiltMethod'];
 const fieldLabels=Object.fromEntries(Object.values(fieldGroups).flat().map(([key,label])=>[key,label]));
 export function reviewProject(project){
   const issues=[];
-  for(const key of requiredFields)if(!project.fields[key]?.trim())issues.push({severity:'critical',code:`field:${key}`,message:`بيان مطلوب غير مكتمل: ${fieldLabels[key]||key}`});
+  for(const key of requiredFields)if(!project.fields[key]?.trim())issues.push({severity:'critical',code:`field:${key}`,message:`Required information is incomplete: ${fieldLabels[key]||key}`});
   for(const m of modules){
-    const status=project.moduleStates[m.id];if(status==='pending')issues.push({severity:'warning',code:`module:${m.id}`,message:`حالة القسم لم تُحسم: ${m.ar}`});
-    if(m.required&&status==='not_applicable')issues.push({severity:'critical',code:`required-module:${m.id}`,message:`تم استبعاد قسم أساسي دون بديل: ${m.ar}`});
-    if(status!=='not_applicable'&&m.depends)for(const dep of m.depends)if(project.moduleStates[dep]==='not_applicable')issues.push({severity:'critical',code:`dependency:${m.id}`,message:`${m.ar} يتطلب تفعيل ${modules.find(x=>x.id===dep)?.ar}`});
+    const status=project.moduleStates[m.id];if(status==='pending')issues.push({severity:'warning',code:`module:${m.id}`,message:`Module status is undecided: ${m.ar}`});
+    if(m.required&&status==='not_applicable')issues.push({severity:'critical',code:`required-module:${m.id}`,message:`A core module was excluded without an alternative: ${m.ar}`});
+    if(status!=='not_applicable'&&m.depends)for(const dep of m.depends)if(project.moduleStates[dep]==='not_applicable')issues.push({severity:'critical',code:`dependency:${m.id}`,message:`${m.ar} requires ${modules.find(x=>x.id===dep)?.ar}`});
   }
-  if(!project.lists.references.length)issues.push({severity:'warning',code:'references',message:'لم تتم إضافة مراجع أو متطلبات معلومات.'});
-  if(!project.lists.software.length)issues.push({severity:'critical',code:'software',message:'لم تتم إضافة البرامج والإصدارات.'});
-  if(!project.lists.models.length)issues.push({severity:'warning',code:'models',message:'سجل الموديلات فارغ.'});
-  if(!project.lists.deliverables.length)issues.push({severity:'critical',code:'deliverables',message:'خطة التسليمات فارغة.'});
-  if(!project.lists.clashes.length&&project.moduleStates.coordination!=='not_applicable')issues.push({severity:'warning',code:'clashes',message:'لم تتم إضافة مصفوفة اختبارات التنسيق.'});
-  if(project.moduleStates.fourD!=='not_applicable'&&(!project.fields.fourDTool.trim()||!project.fields.programmeSource.trim()))issues.push({severity:'critical',code:'fourD',message:'4D مفعّل دون تحديد الأداة ومصدر البرنامج الزمني.'});
-  if(project.moduleStates.cobie!=='not_applicable'&&!project.fields.cobieVersion.trim())issues.push({severity:'critical',code:'cobie',message:'COBie مفعّل دون تحديد الإصدار.'});
+  if(!project.lists.references.length)issues.push({severity:'warning',code:'references',message:'No references or information requirements have been added.'});
+  if(!project.lists.software.length)issues.push({severity:'critical',code:'software',message:'No software products or versions have been added.'});
+  if(!project.lists.models.length)issues.push({severity:'warning',code:'models',message:'The model register is empty.'});
+  if(!project.lists.deliverables.length)issues.push({severity:'critical',code:'deliverables',message:'The delivery plan is empty.'});
+  if(!project.lists.clashes.length&&project.moduleStates.coordination!=='not_applicable')issues.push({severity:'warning',code:'clashes',message:'No coordination test matrix has been added.'});
+  if(project.moduleStates.fourD!=='not_applicable'&&(!project.fields.fourDTool.trim()||!project.fields.programmeSource.trim()))issues.push({severity:'critical',code:'fourD',message:'4D is enabled without a tool and programme source.'});
+  if(project.moduleStates.cobie!=='not_applicable'&&!project.fields.cobieVersion.trim())issues.push({severity:'critical',code:'cobie',message:'COBie is enabled without a specified version.'});
   const critical=issues.filter(i=>i.severity==='critical').length,warnings=issues.length-critical;
   const score=Math.max(0,Math.round(100-(critical*6+warnings*2)));
   return {issues,critical,warnings,score,ready:critical===0};
