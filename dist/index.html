@@ -8,7 +8,54 @@
   <title>BEP Studio</title>
   <link rel="stylesheet" href="./styles.css">
 </head>
-<body>
+<body class="auth-locked">
+  <section id="auth-screen" class="auth-screen" aria-label="BEP Studio account access">
+    <aside class="auth-intro">
+      <div class="auth-brand"><span class="auth-brand-mark">B</span><span><strong>BEP STUDIO</strong><small>PROJECT INFORMATION DELIVERY</small></span></div>
+      <div class="auth-intro-copy"><span class="auth-kicker">POST-CONTRACT BEP WORKSPACE</span><h1>Build controlled,<br>project-specific<br>BIM Execution Plans.</h1><p>Manage project requirements, information exchanges, responsibilities, model standards and formal issues in one secure workspace.</p></div>
+      <div class="auth-assurance"><span><i>✓</i> Private project records</span><span><i>✓</i> Version-controlled issues</span><span><i>✓</i> Print-ready BEP output</span></div>
+      <small class="auth-version">MAIN CONTRACTOR EDITION</small>
+    </aside>
+    <main class="auth-panel">
+      <div class="auth-box">
+        <div class="auth-mobile-brand"><span class="auth-brand-mark">B</span><strong>BEP STUDIO</strong></div>
+        <div id="auth-standard-head"><span class="eyebrow">SECURE WORKSPACE</span><h2 id="auth-title">Welcome back</h2><p id="auth-subtitle">Sign in to continue to your BIM Execution Plans.</p></div>
+        <div class="auth-tabs" id="auth-tabs" role="tablist"><button type="button" role="tab" aria-selected="true" data-auth-view="signin">Sign in</button><button type="button" role="tab" aria-selected="false" data-auth-view="signup">Sign up</button></div>
+
+        <form id="signin-form" class="auth-form" data-auth-form="signin">
+          <label>Email address<input name="email" type="email" autocomplete="email" placeholder="name@company.com" required></label>
+          <label>Password<span class="password-wrap"><input name="password" type="password" autocomplete="current-password" placeholder="Enter your password" minlength="8" required><button type="button" data-toggle-password aria-label="Show password">Show</button></span></label>
+          <div class="auth-options"><label class="remember"><input name="remember" type="checkbox" checked> Remember my login</label><button type="button" class="auth-link" data-auth-view="forgot">Forgot password?</button></div>
+          <button class="auth-submit" type="submit">Sign in</button>
+        </form>
+
+        <form id="signup-form" class="auth-form" data-auth-form="signup" hidden>
+          <label>Email address<input name="email" type="email" autocomplete="email" placeholder="name@company.com" required></label>
+          <label>Password<span class="password-wrap"><input name="password" type="password" autocomplete="new-password" placeholder="Minimum 8 characters" minlength="8" required><button type="button" data-toggle-password aria-label="Show password">Show</button></span></label>
+          <label>Confirm password<span class="password-wrap"><input name="confirmPassword" type="password" autocomplete="new-password" placeholder="Re-enter your password" minlength="8" required><button type="button" data-toggle-password aria-label="Show password">Show</button></span></label>
+          <label class="remember"><input name="remember" type="checkbox" checked> Remember my login on this device</label>
+          <button class="auth-submit" type="submit">Create account</button>
+        </form>
+
+        <form id="forgot-form" class="auth-form" data-auth-form="forgot" hidden>
+          <button type="button" class="auth-back" data-auth-view="signin">← Back to sign in</button>
+          <h2>Reset your password</h2><p>Enter your account email and we will send you a secure reset link.</p>
+          <label>Email address<input name="email" type="email" autocomplete="email" placeholder="name@company.com" required></label>
+          <button class="auth-submit" type="submit">Send reset link</button>
+        </form>
+
+        <form id="reset-form" class="auth-form" data-auth-form="reset" hidden>
+          <span class="eyebrow">PASSWORD RECOVERY</span><h2>Create a new password</h2><p>Choose a new password for your BEP Studio account.</p>
+          <label>New password<span class="password-wrap"><input name="password" type="password" autocomplete="new-password" placeholder="Minimum 8 characters" minlength="8" required><button type="button" data-toggle-password aria-label="Show password">Show</button></span></label>
+          <label>Confirm new password<span class="password-wrap"><input name="confirmPassword" type="password" autocomplete="new-password" placeholder="Re-enter new password" minlength="8" required><button type="button" data-toggle-password aria-label="Show password">Show</button></span></label>
+          <button class="auth-submit" type="submit">Update password</button>
+        </form>
+
+        <div id="auth-message" class="auth-message" role="status" aria-live="polite" hidden></div>
+        <p class="auth-security">Protected by encrypted Supabase authentication. Never share your password.</p>
+      </div>
+    </main>
+  </section>
   <a class="skip-link" href="#main">Skip to content</a>
   <header class="topbar screen-only">
     <button class="brand" id="go-home" aria-label="Return to projects"><span class="brand-mark">B</span><span><strong>BEP STUDIO</strong><small>POST-CONTRACT / MAIN CONTRACTOR</small></span></button>
@@ -63,19 +110,6 @@
     <form method="dialog" id="new-project-form"><button class="dialog-close" value="cancel" aria-label="Close">×</button><span class="eyebrow">NEW PROJECT</span><h2>New BEP project</h2><label>Project name<input name="name" required maxlength="180" autofocus></label><label>Project code<input name="code" required maxlength="70"></label><label>Main contractor<input name="contractor" maxlength="180"></label><div class="dialog-actions"><button class="button ghost" value="cancel">Cancel</button><button class="button primary" value="create">Create project</button></div></form>
   </dialog>
   <dialog id="confirm-dialog"><form method="dialog"><h2 id="confirm-title">Confirm action</h2><p id="confirm-message"></p><div class="dialog-actions"><button class="button ghost" value="cancel">Cancel</button><button class="button danger" value="confirm">Confirm</button></div></form></dialog>
-  <dialog id="auth-dialog">
-    <form id="auth-form">
-      <button class="dialog-close" type="button" data-close-auth aria-label="Close">×</button>
-      <span class="eyebrow">SECURE CLOUD WORKSPACE</span>
-      <h2>Sign in to BEP Studio</h2>
-      <p class="dialog-copy">Keep your projects synchronized and available across devices. You can continue locally if cloud access is unavailable.</p>
-      <label>Email<input name="email" type="email" autocomplete="email" required></label>
-      <label>Password<input name="password" type="password" autocomplete="current-password" minlength="8" required></label>
-      <p id="auth-message" class="auth-message" role="status" hidden></p>
-      <div class="dialog-actions auth-actions"><button class="button primary" type="submit">Sign in</button><button class="button ghost" type="button" id="sign-up">Create account</button></div>
-      <button class="text-button" type="button" data-close-auth>Continue on this device</button>
-    </form>
-  </dialog>
   <div id="toast" class="toast screen-only" role="status" aria-live="polite" hidden></div>
   <script type="module" src="./app.mjs"></script>
 </body>

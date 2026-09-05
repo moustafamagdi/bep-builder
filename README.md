@@ -16,6 +16,7 @@ A browser-based Post-Contract BIM Execution Plan builder for a main contractor. 
 - A4 print / Save as PDF layout.
 - Input escaping, backup validation and automated content/state tests.
 - Email/password authentication, newest-version project merging and per-user Row Level Security.
+- Dedicated responsive authentication screen with sign in, confirmed-password sign up, show/hide password controls, password recovery and optional remembered sessions.
 - Private Supabase Storage bucket prepared for project attachments.
 - In-app private attachment upload, download and deletion with automatic appendix registration.
 - Per-project company logo upload and print-cover integration.

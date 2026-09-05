@@ -1,7 +1,7 @@
 import {modules,moduleGroups,statuses,fieldGroups,listSchemas} from './modules.mjs';
 import {loadWorkspace,saveWorkspace,validateWorkspace,migrateLegacySnapshot,newProject,cloneProject,createRelease,restoreRelease,reviewProject} from './store.mjs';
 import {buildDocument,esc} from './document.mjs';
-import {signIn,signUp,signOut,restoreSession,fetchCloudProjects,upsertCloudProject,deleteCloudProject,mergeProjectSets,uploadAttachment,downloadAttachment,deleteAttachment} from './cloud.mjs';
+import {signIn,signUp,signOut,restoreSession,rememberedEmail,requestPasswordReset,consumeAuthRedirect,updatePassword,fetchCloudProjects,upsertCloudProject,deleteCloudProject,mergeProjectSets,uploadAttachment,downloadAttachment,deleteAttachment} from './cloud.mjs';
 
 const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
 let workspace=loadWorkspace(),active=null,activeView='project',saveTimer,toastTimer,cloudTimer,session=null,logoObjectUrl='';
@@ -113,36 +113,70 @@ $('#restore-all').addEventListener('change',async event=>{const file=event.targe
 window.addEventListener('storage',()=>{workspace=loadWorkspace();if(!active)renderDashboard();});
 
 function showAuthMessage(message,success=false){const el=$('#auth-message');el.textContent=message;el.classList.toggle('success',success);el.hidden=false;}
-function openAuth(){const form=$('#auth-form');form.reset();$('#auth-message').hidden=true;$('#auth-dialog').showModal();}
+function clearAuthMessage(){$('#auth-message').hidden=true;$('#auth-message').classList.remove('success');}
+function setAuthBusy(form,busy,label){const button=form.querySelector('.auth-submit');button.disabled=busy;if(busy){button.dataset.label=button.textContent;button.textContent=label;}else if(button.dataset.label){button.textContent=button.dataset.label;delete button.dataset.label;}}
+function showAuthView(view,{message='',success=false}={}){
+  document.body.classList.add('auth-locked');$('#auth-screen').hidden=false;
+  const standard=['signin','signup'].includes(view);$('#auth-standard-head').hidden=!standard;$('#auth-tabs').hidden=!standard;
+  $$('[data-auth-form]').forEach(form=>form.hidden=form.dataset.authForm!==view);
+  $$('[data-auth-view="signin"],[data-auth-view="signup"]').forEach(tab=>tab.setAttribute('aria-selected',String(tab.dataset.authView===view)));
+  if(standard){const signup=view==='signup';$('#auth-title').textContent=signup?'Create your account':'Welcome back';$('#auth-subtitle').textContent=signup?'Set up secure access to your BEP workspace.':'Sign in to continue to your BIM Execution Plans.';}
+  clearAuthMessage();if(message)showAuthMessage(message,success);
+  const email=rememberedEmail();if(email)$$(`[data-auth-form="${view}"] input[name="email"]`).forEach(input=>input.value=email);
+  setTimeout(()=>document.querySelector(`[data-auth-form="${view}"] input:not([type="checkbox"])`)?.focus(),50);
+}
+function unlockApp(){$('#auth-screen').hidden=true;document.body.classList.remove('auth-locked');}
+function openAuth(){showAuthView('signin');}
 $('#account-button').addEventListener('click',async()=>{
   if(!session){openAuth();return;}
-  if(await confirmAction('Sign out','Cloud synchronization will stop. Projects already saved on this device will remain available.')){
-    await signOut();session=null;setCloudStatus('','Sign in');notify('Signed out. Local projects remain on this device.');
+  if(await confirmAction('Sign out','You will need to sign in again to access the project workspace.')){
+    await signOut();session=null;setCloudStatus('','Sign in');showAuthView('signin',{message:'You have signed out successfully.',success:true});
   }
 });
-$$('[data-close-auth]').forEach(button=>button.addEventListener('click',()=>$('#auth-dialog').close()));
-$('#auth-form').addEventListener('submit',async event=>{
-  event.preventDefault();const data=new FormData(event.currentTarget),email=String(data.get('email')).trim(),password=String(data.get('password'));
-  showAuthMessage('Signing in…',true);
-  try{session=await signIn(email,password);$('#auth-dialog').close();await syncWorkspace();}
+$$('[data-auth-view]').forEach(button=>button.addEventListener('click',()=>showAuthView(button.dataset.authView)));
+$$('[data-toggle-password]').forEach(button=>button.addEventListener('click',()=>{const input=button.parentElement.querySelector('input'),show=input.type==='password';input.type=show?'text':'password';button.textContent=show?'Hide':'Show';button.setAttribute('aria-label',`${show?'Hide':'Show'} password`);}));
+$('#signin-form').addEventListener('submit',async event=>{
+  event.preventDefault();const form=event.currentTarget,data=new FormData(form),email=String(data.get('email')).trim(),password=String(data.get('password')),remember=data.get('remember')==='on';
+  clearAuthMessage();setAuthBusy(form,true,'Signing in…');
+  try{session=await signIn(email,password,remember);await syncWorkspace();unlockApp();}
   catch(error){showAuthMessage(error.message);}
+  finally{setAuthBusy(form,false);}
 });
-$('#sign-up').addEventListener('click',async()=>{
-  const data=new FormData($('#auth-form')),email=String(data.get('email')).trim(),password=String(data.get('password'));
-  if(!email||password.length<8){showAuthMessage('Enter a valid email and a password of at least 8 characters.');return;}
-  showAuthMessage('Creating your account…',true);
+$('#signup-form').addEventListener('submit',async event=>{
+  event.preventDefault();const form=event.currentTarget,data=new FormData(form),email=String(data.get('email')).trim(),password=String(data.get('password')),confirmPassword=String(data.get('confirmPassword')),remember=data.get('remember')==='on';
+  if(password!==confirmPassword){showAuthMessage('The password confirmation does not match.');return;}
+  clearAuthMessage();setAuthBusy(form,true,'Creating account…');
   try{
-    const result=await signUp(email,password);
-    if(result?.access_token){session=result;$('#auth-dialog').close();await syncWorkspace();}
-    else showAuthMessage('Account created. Check your email to confirm it, then sign in.',true);
+    const result=await signUp(email,password,remember,location.origin);
+    if(result?.access_token){session=result;await syncWorkspace();unlockApp();}
+    else showAuthView('signin',{message:'Account created. Check your email to confirm it, then sign in.',success:true});
   }catch(error){showAuthMessage(error.message);}
+  finally{setAuthBusy(form,false);}
+});
+$('#forgot-form').addEventListener('submit',async event=>{
+  event.preventDefault();const form=event.currentTarget,email=String(new FormData(form).get('email')).trim();clearAuthMessage();setAuthBusy(form,true,'Sending…');
+  try{await requestPasswordReset(email,location.origin);showAuthMessage('If an account exists for this email, a reset link has been sent. Check your inbox and spam folder.',true);}
+  catch(error){showAuthMessage(error.message);}
+  finally{setAuthBusy(form,false);}
+});
+$('#reset-form').addEventListener('submit',async event=>{
+  event.preventDefault();const form=event.currentTarget,data=new FormData(form),password=String(data.get('password')),confirmPassword=String(data.get('confirmPassword'));
+  if(password!==confirmPassword){showAuthMessage('The password confirmation does not match.');return;}
+  clearAuthMessage();setAuthBusy(form,true,'Updating…');
+  try{await updatePassword(password);await signOut();session=null;showAuthView('signin',{message:'Password updated successfully. Sign in with your new password.',success:true});}
+  catch(error){showAuthMessage(error.message);}
+  finally{setAuthBusy(form,false);}
 });
 window.addEventListener('online',()=>{if(session)syncWorkspace();});
 
 async function initialize(){
   renderDashboard();setCloudStatus('syncing','Connecting…');
-  session=await restoreSession();
-  if(session)await syncWorkspace();
-  else{setCloudStatus('','Sign in');setTimeout(()=>openAuth(),180);}
+  try{
+    const redirect=await consumeAuthRedirect();
+    if(redirect){session=redirect.session;if(redirect.type==='recovery'){setCloudStatus('','Password recovery');showAuthView('reset');return;}}
+    if(!session)session=await restoreSession();
+    if(session){await syncWorkspace();unlockApp();}
+    else{setCloudStatus('','Sign in');showAuthView('signin');}
+  }catch(error){setCloudStatus('error','Authentication error');showAuthView('signin',{message:error.message});}
 }
 initialize();

@@ -1,14 +1,15 @@
 const SUPABASE_URL='https://jtubxhixhiqeyxhpqgpf.supabase.co';
 const SUPABASE_PUBLISHABLE_KEY='sb_publishable_DRTFtffhvBGljsgWbE2rzQ__8cqvvpk';
 const SESSION_KEY='bep-studio-cloud-session-v1';
+const EMAIL_KEY='bep-studio-remembered-email-v1';
 
 function readSession(){
-  try{return JSON.parse(localStorage.getItem(SESSION_KEY))||null;}catch{return null;}
+  try{return JSON.parse(localStorage.getItem(SESSION_KEY)||sessionStorage.getItem(SESSION_KEY))||null;}catch{return null;}
 }
 
-function writeSession(session){
-  if(session)localStorage.setItem(SESSION_KEY,JSON.stringify(session));
-  else localStorage.removeItem(SESSION_KEY);
+function writeSession(session,remember=session?.remember!==false){
+  localStorage.removeItem(SESSION_KEY);sessionStorage.removeItem(SESSION_KEY);
+  if(session){session.remember=remember;(remember?localStorage:sessionStorage).setItem(SESSION_KEY,JSON.stringify(session));}
   return session;
 }
 
@@ -30,13 +31,16 @@ function normalizeSession(data){
   return {...data,expires_at:data.expires_at||Math.floor(Date.now()/1000)+(data.expires_in||3600)};
 }
 
-export async function signIn(email,password){
-  return writeSession(normalizeSession(await api('/auth/v1/token?grant_type=password',{method:'POST',body:{email,password}})));
+export async function signIn(email,password,remember=true){
+  const session=writeSession(normalizeSession(await api('/auth/v1/token?grant_type=password',{method:'POST',body:{email,password}})),remember);
+  if(remember)localStorage.setItem(EMAIL_KEY,email);else localStorage.removeItem(EMAIL_KEY);
+  return session;
 }
 
-export async function signUp(email,password){
-  const data=await api('/auth/v1/signup',{method:'POST',body:{email,password}});
-  if(data?.access_token)writeSession(normalizeSession(data));
+export async function signUp(email,password,remember=true,redirectTo=location.origin){
+  const data=await api(`/auth/v1/signup?redirect_to=${encodeURIComponent(redirectTo)}`,{method:'POST',body:{email,password}});
+  if(data?.access_token)writeSession(normalizeSession(data),remember);
+  if(remember)localStorage.setItem(EMAIL_KEY,email);
   return data;
 }
 
@@ -47,7 +51,7 @@ export async function signOut(){
 
 async function refresh(session){
   if(!session?.refresh_token)return null;
-  try{return writeSession(normalizeSession(await api('/auth/v1/token?grant_type=refresh_token',{method:'POST',body:{refresh_token:session.refresh_token}})));}
+  try{return writeSession(normalizeSession(await api('/auth/v1/token?grant_type=refresh_token',{method:'POST',body:{refresh_token:session.refresh_token}})),session.remember!==false);}
   catch{writeSession(null);return null;}
 }
 
@@ -56,6 +60,30 @@ export async function restoreSession(){
   if(!session)return null;
   if((session.expires_at||0)>Math.floor(Date.now()/1000)+60)return session;
   return refresh(session);
+}
+
+export function rememberedEmail(){return localStorage.getItem(EMAIL_KEY)||'';}
+
+export async function requestPasswordReset(email,redirectTo=location.origin){
+  await api(`/auth/v1/recover?redirect_to=${encodeURIComponent(redirectTo)}`,{method:'POST',body:{email}});
+}
+
+export async function consumeAuthRedirect(){
+  const params=new URLSearchParams(location.hash.replace(/^#/,''));
+  const redirectError=params.get('error_description')||params.get('error');
+  if(redirectError){history.replaceState({},document.title,`${location.pathname}${location.search}`);throw new Error(redirectError);}
+  const accessToken=params.get('access_token'),refreshToken=params.get('refresh_token'),type=params.get('type');
+  if(!accessToken)return null;
+  const user=await api('/auth/v1/user',{token:accessToken});
+  const session=writeSession(normalizeSession({access_token:accessToken,refresh_token:refreshToken,expires_in:Number(params.get('expires_in')||3600),token_type:params.get('token_type')||'bearer',user}),true);
+  history.replaceState({},document.title,`${location.pathname}${location.search}`);
+  return {session,type};
+}
+
+export async function updatePassword(password){
+  const session=await activeSession();
+  const user=await api('/auth/v1/user',{method:'PUT',token:session.access_token,body:{password}});
+  session.user=user;writeSession(session,session.remember!==false);return user;
 }
 
 async function activeSession(){
