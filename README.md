@@ -1,11 +1,11 @@
 # BEP Studio
 
-A browser-based Post-Contract BIM Execution Plan builder for a main contractor. The editor is Arabic and the generated BEP is English.
+A browser-based Post-Contract BIM Execution Plan builder for a main contractor. The interface and generated BEP are English.
 
 ## Current release
 
 - Multi-project dashboard with search, duplicate, archive and delete.
-- Automatic local persistence in `localStorage`.
+- Automatic local persistence with authenticated Supabase cloud synchronization.
 - 29 modular BEP sections with Required, Optional, Pending and Not Applicable states.
 - Structured project, appointment, CDE, software, model, milestone, delivery, clash and meeting inputs.
 - Dependency checking, including COBie / Asset Information and conditional 4D requirements.
@@ -15,16 +15,18 @@ A browser-based Post-Contract BIM Execution Plan builder for a main contractor. 
 - Generic English Post-Contract BEP output with live numbering and project-specific provisions.
 - A4 print / Save as PDF layout.
 - Input escaping, backup validation and automated content/state tests.
+- Email/password authentication, newest-version project merging and per-user Row Level Security.
+- Private Supabase Storage bucket prepared for project attachments.
 
 ## Cloudflare Pages
 
 The production branch is `main`, the framework preset is **None**, and the output directory is `dist`. No build command is required.
 
-## Data and privacy
+## Supabase
 
-This release stores projects only in the current browser profile. It does not upload project data. The deployed website remains public unless access protection is enabled in Cloudflare. Do not enter confidential project information on an unprotected shared device.
+The public browser client contains only the Supabase project URL and publishable key. Never add a Supabase secret or service-role key to this repository.
 
-Cloud persistence, sign-in and private attachment storage require Cloudflare Worker/D1/R2 bindings and are intentionally not simulated in browser code. The JSON backup is the portability and recovery mechanism until those bindings are configured.
+The database and storage policies are documented in `supabase/schema.sql`. Cloud records are restricted to their authenticated owner through RLS. Local storage remains an offline cache and JSON backup remains available for portability and recovery.
 
 ## Checks
 

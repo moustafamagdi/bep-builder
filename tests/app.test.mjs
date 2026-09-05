@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {modules} from '../dist/modules.mjs';
 import {newProject,reviewProject,createRelease,restoreRelease,validateWorkspace,cloneProject} from '../dist/store.mjs';
 import {buildDocument} from '../dist/document.mjs';
+import {mergeProjectSets} from '../dist/cloud.mjs';
 
 function completeProject(){
   const p=newProject({projectName:'Demo Hub',projectCode:'DHM',description:'A transport hub.',documentCode:'DHM-BEP-001',preparedBy:'BIM Manager',contractor:'MainCo',client:'ClientCo',consultant:'ConsultCo',cde:'ACC',crs:'EPSG:32638',verticalDatum:'MSL'});
@@ -23,3 +24,4 @@ test('user input is escaped in the generated BEP',()=>{const p=completeProject()
 test('frozen release restores without changing the frozen snapshot',()=>{const p=completeProject();createRelease(p);const id=p.releases[0].id;p.fields.projectName='Changed';restoreRelease(p,id);assert.equal(p.fields.projectName,'Demo Hub');p.fields.projectName='Again';assert.equal(p.releases[0].snapshot.fields.projectName,'Demo Hub');});
 test('duplicated project has a new identity and no release history',()=>{const p=completeProject();createRelease(p);const copy=cloneProject(p);assert.notEqual(copy.id,p.id);assert.equal(copy.releases.length,0);assert.equal(copy.fields.projectCode,'');});
 test('workspace validation rejects duplicate IDs and unsafe style data',()=>{const p=completeProject(),w={schemaVersion:2,activeProjectId:null,projects:[p]};assert.deepEqual(validateWorkspace(structuredClone(w)),w);assert.throws(()=>validateWorkspace({...w,projects:[p,p]}));const bad=structuredClone(w);bad.projects[0].style.accent='url(javascript:x)';assert.throws(()=>validateWorkspace(bad));});
+test('cloud merge keeps the newest version of each project',()=>{const local=completeProject(),cloud=structuredClone(local);local.updatedAt='2026-09-05T12:00:00Z';cloud.updatedAt='2026-09-05T11:00:00Z';cloud.fields.projectName='Old cloud name';const remoteOnly=completeProject();remoteOnly.id='remote-only';const merged=mergeProjectSets([local],[cloud,remoteOnly]);assert.equal(merged.length,2);assert.equal(merged.find(p=>p.id===local.id).fields.projectName,'Demo Hub');assert.ok(merged.some(p=>p.id==='remote-only'));});

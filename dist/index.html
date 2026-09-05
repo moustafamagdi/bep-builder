@@ -14,6 +14,7 @@
     <button class="brand" id="go-home" aria-label="Return to projects"><span class="brand-mark">B</span><span><strong>BEP STUDIO</strong><small>POST-CONTRACT / MAIN CONTRACTOR</small></span></button>
     <div class="project-indicator"><span id="save-status">Saved locally</span><strong id="current-project-name">Projects</strong></div>
     <div class="top-actions">
+      <button class="button cloud-status" id="account-button" title="Cloud account"><span id="cloud-dot"></span><span id="account-label">Sign in</span></button>
       <button class="button ghost" id="backup-all">Back up</button>
       <label class="button ghost" for="restore-all">Restore<input id="restore-all" type="file" accept=".json,application/json" hidden></label>
       <button class="button primary editor-only" id="print">Print / PDF</button>
@@ -61,6 +62,19 @@
     <form method="dialog" id="new-project-form"><button class="dialog-close" value="cancel" aria-label="Close">×</button><span class="eyebrow">NEW PROJECT</span><h2>New BEP project</h2><label>Project name<input name="name" required maxlength="180" autofocus></label><label>Project code<input name="code" required maxlength="70"></label><label>Main contractor<input name="contractor" maxlength="180"></label><div class="dialog-actions"><button class="button ghost" value="cancel">Cancel</button><button class="button primary" value="create">Create project</button></div></form>
   </dialog>
   <dialog id="confirm-dialog"><form method="dialog"><h2 id="confirm-title">Confirm action</h2><p id="confirm-message"></p><div class="dialog-actions"><button class="button ghost" value="cancel">Cancel</button><button class="button danger" value="confirm">Confirm</button></div></form></dialog>
+  <dialog id="auth-dialog">
+    <form id="auth-form">
+      <button class="dialog-close" type="button" data-close-auth aria-label="Close">×</button>
+      <span class="eyebrow">SECURE CLOUD WORKSPACE</span>
+      <h2>Sign in to BEP Studio</h2>
+      <p class="dialog-copy">Keep your projects synchronized and available across devices. You can continue locally if cloud access is unavailable.</p>
+      <label>Email<input name="email" type="email" autocomplete="email" required></label>
+      <label>Password<input name="password" type="password" autocomplete="current-password" minlength="8" required></label>
+      <p id="auth-message" class="auth-message" role="status" hidden></p>
+      <div class="dialog-actions auth-actions"><button class="button primary" type="submit">Sign in</button><button class="button ghost" type="button" id="sign-up">Create account</button></div>
+      <button class="text-button" type="button" data-close-auth>Continue on this device</button>
+    </form>
+  </dialog>
   <div id="toast" class="toast screen-only" role="status" aria-live="polite" hidden></div>
   <script type="module" src="./app.mjs"></script>
 </body>

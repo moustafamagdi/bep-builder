@@ -14,3 +14,15 @@
 .required{margin-right:0;margin-left:6px}
 .dialog-close{left:auto;right:18px}
 .top-actions{justify-content:flex-end}
+.cloud-status{display:flex;align-items:center;gap:7px;background:#f5f8f9;max-width:210px}
+.cloud-status span:last-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#cloud-dot{width:8px;height:8px;border-radius:50%;background:#98a7af;flex:0 0 auto}
+.cloud-status.connected #cloud-dot{background:#22a66f;box-shadow:0 0 0 3px #22a66f20}
+.cloud-status.syncing #cloud-dot{background:#d88a19;animation:pulse 1s infinite alternate}
+.cloud-status.error #cloud-dot{background:var(--danger)}
+.dialog-copy{color:var(--muted);font-size:13px;line-height:1.6;margin:-10px 0 18px}
+.auth-message{padding:10px 12px;border-radius:8px;background:#fff1e7;color:#98420e;font-size:12px;line-height:1.5}
+.auth-message.success{background:#e8f7ef;color:var(--ok)}
+.auth-actions{margin-bottom:16px}
+.text-button{display:block;margin:0 auto;border:0;background:transparent;color:var(--muted);font-size:12px;text-decoration:underline}
+@keyframes pulse{to{opacity:.35}}

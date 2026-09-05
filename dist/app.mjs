@@ -1,14 +1,36 @@
 import {modules,moduleGroups,statuses,fieldGroups,listSchemas} from './modules.mjs';
 import {loadWorkspace,saveWorkspace,validateWorkspace,migrateLegacySnapshot,newProject,cloneProject,createRelease,restoreRelease,reviewProject} from './store.mjs';
 import {buildDocument,esc} from './document.mjs';
+import {signIn,signUp,signOut,restoreSession,fetchCloudProjects,upsertCloudProject,deleteCloudProject,mergeProjectSets} from './cloud.mjs';
 
 const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
-let workspace=loadWorkspace(),active=null,activeView='project',saveTimer,toastTimer;
+let workspace=loadWorkspace(),active=null,activeView='project',saveTimer,toastTimer,cloudTimer,session=null;
+const CLOUD_OWNER_KEY='bep-studio-cloud-owner-v1';
 const viewMeta={project:['Project & issue','Cover information, document control and appointment'],organization:['Parties & team','Organizations, roles and responsible people'],information:['Information & platforms','References, BIM uses, CDE and software'],technical:['Models & standards','Model register, naming and coordinates'],coordination:['Coordination & delivery','Milestones, deliverables, clashes and meetings'],modules:['BEP content','Status and project-specific text for every module'],review:['Review & issues','Gaps, conflicts and frozen issues'],appearance:['Branding & print','Document style and visible elements'],preview:['Document preview','Print-ready English version']};
 const viewLists={organization:['parties','team'],information:['references','uses','software'],technical:['models'],coordination:['milestones','deliverables','clashes','meetings']};
 function notify(msg){clearTimeout(toastTimer);$('#toast').textContent=msg;$('#toast').hidden=false;toastTimer=setTimeout(()=>$('#toast').hidden=true,4500);}
 function current(){return workspace.projects.find(p=>p.id===workspace.activeProjectId)||null;}
-function persist(){if(!active)return;active.updatedAt=new Date().toISOString();try{saveWorkspace(workspace);$('#save-status').textContent='Saved locally';}catch{$('#save-status').textContent='Save failed';notify('Local storage is full. Download a backup before continuing.');}}
+function setCloudStatus(mode,label){const button=$('#account-button');button.classList.remove('connected','syncing','error');if(mode)button.classList.add(mode);$('#account-label').textContent=label;}
+async function syncProject(project,{quiet=false}={}){
+  if(!session||!project)return;
+  setCloudStatus('syncing','Syncing…');
+  try{await upsertCloudProject(project);setCloudStatus('connected',session.user.email);if(!quiet)$('#save-status').textContent='Saved to cloud';}
+  catch(error){setCloudStatus('error','Sync paused');if(!quiet)notify(error.message);}
+}
+function queueCloudProject(project){if(!session)return;clearTimeout(cloudTimer);cloudTimer=setTimeout(()=>syncProject(project),500);}
+async function syncWorkspace(){
+  if(!session)return;
+  setCloudStatus('syncing','Connecting…');
+  try{
+    const recordedOwner=localStorage.getItem(CLOUD_OWNER_KEY),localProjects=!recordedOwner||recordedOwner===session.user.id?workspace.projects:[],cloudProjects=await fetchCloudProjects(),cloudById=new Map(cloudProjects.map(p=>[p.id,p]));
+    workspace.projects=mergeProjectSets(localProjects,cloudProjects);saveWorkspace(workspace);
+    const uploads=localProjects.filter(p=>!cloudById.has(p.id)||String(p.updatedAt||'')>String(cloudById.get(p.id).updatedAt||''));
+    await Promise.all(uploads.map(p=>upsertCloudProject(p)));
+    localStorage.setItem(CLOUD_OWNER_KEY,session.user.id);active=current();setCloudStatus('connected',session.user.email);renderDashboard();
+    notify(uploads.length?'Local projects were merged with your cloud workspace.':'Cloud workspace is up to date.');
+  }catch(error){setCloudStatus('error','Sync paused');notify(`Cloud sync paused: ${error.message}`);renderDashboard();}
+}
+function persist(){if(!active)return;active.updatedAt=new Date().toISOString();try{saveWorkspace(workspace);$('#save-status').textContent='Saved locally';queueCloudProject(active);}catch{$('#save-status').textContent='Save failed';notify('Local storage is full. Download a backup before continuing.');}}
 function changed(){if(!active)return;$('#save-status').textContent='Saving…';clearTimeout(saveTimer);saveTimer=setTimeout(()=>{persist();renderReadiness();},250);}
 function statusText(p){const r=reviewProject(p);return r.ready?'Ready for issue review':`${r.critical} critical gap${r.critical===1?'':'s'}`;}
 
@@ -53,12 +75,46 @@ function showView(view){activeView=view;$$('#editor-nav button').forEach(b=>b.cl
 function confirmAction(title,message){return new Promise(resolve=>{const d=$('#confirm-dialog');$('#confirm-title').textContent=title;$('#confirm-message').textContent=message;d.addEventListener('close',()=>resolve(d.returnValue==='confirm'),{once:true});d.showModal();});}
 
 $('#new-project').addEventListener('click',()=>{$('#new-project-form').reset();$('#project-dialog').showModal();});
-$('#new-project-form').addEventListener('submit',event=>{event.preventDefault();const submitter=event.submitter;if(submitter?.value!=='create'){$('#project-dialog').close('cancel');return;}const data=new FormData(event.currentTarget),p=newProject({projectName:String(data.get('name')).trim(),projectCode:String(data.get('code')).trim(),contractor:String(data.get('contractor')).trim()});workspace.projects.push(p);saveWorkspace(workspace);$('#project-dialog').close('create');openProject(p.id);});
-$('#project-list').addEventListener('click',async event=>{const btn=event.target.closest('button[data-action]');if(!btn)return;const card=btn.closest('[data-id]'),p=workspace.projects.find(x=>x.id===card.dataset.id);if(btn.dataset.action==='open')openProject(p.id);if(btn.dataset.action==='duplicate'){workspace.projects.push(cloneProject(p));saveWorkspace(workspace);renderDashboard();notify('An independent project copy was created.');}if(btn.dataset.action==='archive'){p.archived=!p.archived;p.updatedAt=new Date().toISOString();saveWorkspace(workspace);renderDashboard();}if(btn.dataset.action==='delete'&&await confirmAction('Delete project',`${p.fields.projectName} and its frozen issues will be removed permanently from this device.`)){workspace.projects=workspace.projects.filter(x=>x.id!==p.id);saveWorkspace(workspace);renderDashboard();}});
+$('#new-project-form').addEventListener('submit',event=>{event.preventDefault();const submitter=event.submitter;if(submitter?.value!=='create'){$('#project-dialog').close('cancel');return;}const data=new FormData(event.currentTarget),p=newProject({projectName:String(data.get('name')).trim(),projectCode:String(data.get('code')).trim(),contractor:String(data.get('contractor')).trim()});workspace.projects.push(p);saveWorkspace(workspace);syncProject(p,{quiet:true});$('#project-dialog').close('create');openProject(p.id);});
+$('#project-list').addEventListener('click',async event=>{const btn=event.target.closest('button[data-action]');if(!btn)return;const card=btn.closest('[data-id]'),p=workspace.projects.find(x=>x.id===card.dataset.id);if(btn.dataset.action==='open')openProject(p.id);if(btn.dataset.action==='duplicate'){const copy=cloneProject(p);workspace.projects.push(copy);saveWorkspace(workspace);syncProject(copy,{quiet:true});renderDashboard();notify('An independent project copy was created.');}if(btn.dataset.action==='archive'){p.archived=!p.archived;p.updatedAt=new Date().toISOString();saveWorkspace(workspace);syncProject(p,{quiet:true});renderDashboard();}if(btn.dataset.action==='delete'&&await confirmAction('Delete project',`${p.fields.projectName} and its frozen issues will be removed permanently from this device and your cloud workspace.`)){workspace.projects=workspace.projects.filter(x=>x.id!==p.id);saveWorkspace(workspace);if(session)try{await deleteCloudProject(p.id);}catch(error){notify(`Deleted locally, but cloud deletion failed: ${error.message}`);}renderDashboard();}});
 $('#project-search').addEventListener('input',renderDashboard);$('#back-dashboard').addEventListener('click',renderDashboard);$('#go-home').addEventListener('click',renderDashboard);
 $$('#editor-nav button').forEach(btn=>btn.addEventListener('click',()=>showView(btn.dataset.view)));$('#close-preview').addEventListener('click',()=>showView('review'));
 $('#print').addEventListener('click',()=>{if(!active)return;const r=reviewProject(active);showView('preview');if(!r.ready&&!confirm('The document has critical gaps and will be marked as an incomplete draft. Continue to print?'))return;setTimeout(()=>window.print(),50);});
 $('#backup-all').addEventListener('click',()=>{const blob=new Blob([JSON.stringify({...workspace,exportedAt:new Date().toISOString()},null,2)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`bep-studio-backup-${new Date().toISOString().slice(0,10)}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);notify('Backup is ready.');});
-$('#restore-all').addEventListener('change',async event=>{const file=event.target.files[0];if(!file)return;try{if(file.size>10_000_000)throw new Error('The file is larger than 10 MB.');const raw=JSON.parse(await file.text()),loaded=raw.schemaVersion===2?validateWorkspace(raw):validateWorkspace(migrateLegacySnapshot(raw));if(await confirmAction('Restore backup','All projects saved on this device will be replaced.')){workspace=loaded;saveWorkspace(workspace);renderDashboard();notify(raw.version===1?'The legacy snapshot was migrated and restored.':'Projects and issues were restored.');}}catch(error){notify(error instanceof SyntaxError?'Invalid JSON file.':error.message);}finally{event.target.value='';}});
+$('#restore-all').addEventListener('change',async event=>{const file=event.target.files[0];if(!file)return;try{if(file.size>10_000_000)throw new Error('The file is larger than 10 MB.');const raw=JSON.parse(await file.text()),loaded=raw.schemaVersion===2?validateWorkspace(raw):validateWorkspace(migrateLegacySnapshot(raw));if(await confirmAction('Restore backup','All projects saved on this device will be replaced.')){workspace=loaded;saveWorkspace(workspace);if(session)await Promise.all(workspace.projects.map(p=>upsertCloudProject(p)));renderDashboard();notify(raw.version===1?'The legacy snapshot was migrated and restored.':'Projects and issues were restored.');}}catch(error){notify(error instanceof SyntaxError?'Invalid JSON file.':error.message);}finally{event.target.value='';}});
 window.addEventListener('storage',()=>{workspace=loadWorkspace();if(!active)renderDashboard();});
-renderDashboard();
+
+function showAuthMessage(message,success=false){const el=$('#auth-message');el.textContent=message;el.classList.toggle('success',success);el.hidden=false;}
+function openAuth(){const form=$('#auth-form');form.reset();$('#auth-message').hidden=true;$('#auth-dialog').showModal();}
+$('#account-button').addEventListener('click',async()=>{
+  if(!session){openAuth();return;}
+  if(await confirmAction('Sign out','Cloud synchronization will stop. Projects already saved on this device will remain available.')){
+    await signOut();session=null;setCloudStatus('','Sign in');notify('Signed out. Local projects remain on this device.');
+  }
+});
+$$('[data-close-auth]').forEach(button=>button.addEventListener('click',()=>$('#auth-dialog').close()));
+$('#auth-form').addEventListener('submit',async event=>{
+  event.preventDefault();const data=new FormData(event.currentTarget),email=String(data.get('email')).trim(),password=String(data.get('password'));
+  showAuthMessage('Signing in…',true);
+  try{session=await signIn(email,password);$('#auth-dialog').close();await syncWorkspace();}
+  catch(error){showAuthMessage(error.message);}
+});
+$('#sign-up').addEventListener('click',async()=>{
+  const data=new FormData($('#auth-form')),email=String(data.get('email')).trim(),password=String(data.get('password'));
+  if(!email||password.length<8){showAuthMessage('Enter a valid email and a password of at least 8 characters.');return;}
+  showAuthMessage('Creating your account…',true);
+  try{
+    const result=await signUp(email,password);
+    if(result?.access_token){session=result;$('#auth-dialog').close();await syncWorkspace();}
+    else showAuthMessage('Account created. Check your email to confirm it, then sign in.',true);
+  }catch(error){showAuthMessage(error.message);}
+});
+window.addEventListener('online',()=>{if(session)syncWorkspace();});
+
+async function initialize(){
+  renderDashboard();setCloudStatus('syncing','Connecting…');
+  session=await restoreSession();
+  if(session)await syncWorkspace();
+  else{setCloudStatus('','Sign in');setTimeout(()=>openAuth(),180);}
+}
+initialize();
