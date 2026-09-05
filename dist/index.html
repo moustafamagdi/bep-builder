@@ -81,15 +81,16 @@
         <div class="readiness-card"><div class="readiness-top"><span>Issue readiness</span><strong id="readiness-value">0%</strong></div><div class="progress"><i id="readiness-bar"></i></div><small id="readiness-label">Required information is missing</small></div>
         <nav id="editor-nav" aria-label="BEP setup sections">
           <button data-view="project" class="active"><span>01</span>Project &amp; issue</button>
-          <button data-view="organization"><span>02</span>Parties &amp; team</button>
-          <button data-view="information"><span>03</span>Information &amp; platforms</button>
-          <button data-view="technical"><span>04</span>Models &amp; standards</button>
-          <button data-view="coordination"><span>05</span>Coordination &amp; delivery</button>
-          <button data-view="modules"><span>06</span>BEP content</button>
-          <button data-view="files"><span>07</span>Files &amp; appendices</button>
-          <button data-view="review"><span>08</span>Review &amp; issues</button>
-          <button data-view="appearance"><span>09</span>Branding &amp; print</button>
-          <button data-view="preview"><span>10</span>Document preview</button>
+          <button data-view="templates"><span>02</span>Templates &amp; data</button>
+          <button data-view="organization"><span>03</span>Parties &amp; team</button>
+          <button data-view="information"><span>04</span>Information &amp; platforms</button>
+          <button data-view="technical"><span>05</span>Models &amp; standards</button>
+          <button data-view="coordination"><span>06</span>Coordination &amp; delivery</button>
+          <button data-view="modules"><span>07</span>BEP content</button>
+          <button data-view="files"><span>08</span>Files &amp; appendices</button>
+          <button data-view="review"><span>09</span>Review &amp; issues</button>
+          <button data-view="appearance"><span>10</span>Branding &amp; print</button>
+          <button data-view="preview"><span>11</span>Document preview</button>
         </nav>
         <button class="button ghost full" id="back-dashboard">Back to projects</button>
       </aside>
@@ -110,6 +111,11 @@
     <form method="dialog" id="new-project-form"><button class="dialog-close" value="cancel" aria-label="Close">×</button><span class="eyebrow">NEW PROJECT</span><h2>New BEP project</h2><label>Project name<input name="name" required maxlength="180" autofocus></label><label>Project code<input name="code" required maxlength="70"></label><label>Main contractor<input name="contractor" maxlength="180"></label><div class="dialog-actions"><button class="button ghost" value="cancel">Cancel</button><button class="button primary" value="create">Create project</button></div></form>
   </dialog>
   <dialog id="confirm-dialog"><form method="dialog"><h2 id="confirm-title">Confirm action</h2><p id="confirm-message"></p><div class="dialog-actions"><button class="button ghost" value="cancel">Cancel</button><button class="button danger" value="confirm">Confirm</button></div></form></dialog>
+  <dialog id="template-dialog"><form id="template-form"><button class="dialog-close" type="button" data-close-dialog>×</button><span class="eyebrow">SAVE REUSABLE BASELINE</span><h2>Create template</h2><label>Template type<select name="type"><option value="company">Company template</option><option value="client">Client requirement pack</option></select></label><label>Name<input name="name" required maxlength="160"></label><label>Description<textarea name="description" rows="3" maxlength="1000"></textarea></label><label>Source / requirement reference<input name="sourceReference" maxlength="300" placeholder="Required for client packs"></label><label>Version<input name="version" value="1.0" maxlength="30"></label><div class="dialog-actions"><button class="button ghost" type="button" data-close-dialog>Cancel</button><button class="button primary" type="submit">Save template</button></div></form></dialog>
+  <dialog id="import-dialog"><form id="import-form"><button class="dialog-close" type="button" data-close-dialog>×</button><span class="eyebrow">CONTROLLED IMPORT</span><h2>Review incoming data</h2><div id="import-summary"></div><label>Import mode<select name="mode"><option value="merge">Merge new rows (recommended)</option><option value="replace">Replace affected schedules</option></select></label><div class="dialog-actions"><button class="button ghost" type="button" data-close-dialog>Cancel</button><button class="button primary" type="submit">Apply import</button></div></form></dialog>
+  <dialog id="template-apply-dialog"><form id="template-apply-form"><button class="dialog-close" type="button" data-close-dialog>×</button><span class="eyebrow">TEMPLATE IMPACT REVIEW</span><h2>Apply template</h2><div id="template-impact"></div><label>Application mode<select name="mode"><option value="fill">Merge and preserve project values (recommended)</option><option value="overwrite">Overwrite affected content</option></select></label><div class="dialog-actions"><button class="button ghost" type="button" data-close-dialog>Cancel</button><button class="button primary" type="submit">Apply template</button></div></form></dialog>
+  <input id="workbook-import" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden>
+  <input id="csv-import" type="file" accept=".csv,text/csv" hidden>
   <div id="toast" class="toast screen-only" role="status" aria-live="polite" hidden></div>
   <script type="module" src="./app.mjs"></script>
 </body>

@@ -109,6 +109,22 @@ export async function deleteCloudProject(id){
   await api(`/rest/v1/bep_projects?id=eq.${encodeURIComponent(id)}`,{method:'DELETE',token:session.access_token,headers:{Prefer:'return=minimal'}});
 }
 
+export async function fetchCloudTemplates(){
+  const session=await activeSession();
+  const rows=await api('/rest/v1/bep_templates?select=*&order=updated_at.desc',{token:session.access_token});
+  return (rows||[]).map(row=>({id:row.id,type:row.template_type,name:row.name,description:row.description||'',sourceReference:row.source_reference||'',version:row.version||'1.0',isDefault:Boolean(row.is_default),data:row.template_data||{},createdAt:row.created_at,updatedAt:row.updated_at}));
+}
+
+export async function upsertCloudTemplate(template){
+  const session=await activeSession(),row={id:template.id,user_id:session.user.id,template_type:template.type,name:template.name,description:template.description||'',source_reference:template.sourceReference||'',version:template.version||'1.0',is_default:Boolean(template.isDefault),template_data:template.data,created_at:template.createdAt,updated_at:template.updatedAt};
+  await api('/rest/v1/bep_templates?on_conflict=id',{method:'POST',token:session.access_token,headers:{Prefer:'resolution=merge-duplicates,return=minimal'},body:row});
+}
+
+export async function deleteCloudTemplate(id){
+  const session=await activeSession();
+  await api(`/rest/v1/bep_templates?id=eq.${encodeURIComponent(id)}`,{method:'DELETE',token:session.access_token,headers:{Prefer:'return=minimal'}});
+}
+
 const storagePath=path=>path.split('/').map(encodeURIComponent).join('/');
 
 export async function uploadAttachment(file,path,{upsert=false}={}){

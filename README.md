@@ -21,6 +21,10 @@ A browser-based Post-Contract BIM Execution Plan builder for a main contractor. 
 - In-app private attachment upload, download and deletion with automatic appendix registration.
 - Per-project company logo upload and print-cover integration.
 - Advanced responsibility, information exchange, naming, LOIN, QA/QC, asset requirement and decision schedules.
+- Multi-sheet Excel workbook export/import and per-schedule CSV exchange.
+- Import impact preview with merge and replace modes.
+- Private Company Template and Client Requirement Pack library.
+- Applied-template provenance and retained-conflict review.
 
 ## Cloudflare Pages
 
@@ -40,4 +44,6 @@ node --check dist/app.mjs
 node --check dist/document.mjs
 node --check dist/modules.mjs
 node --check dist/store.mjs
+node --check dist/spreadsheet.mjs
+node --check dist/templates.mjs
 ```

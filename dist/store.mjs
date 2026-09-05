@@ -12,7 +12,7 @@ export const fieldDefaults={
 const uid=()=>globalThis.crypto?.randomUUID?.()||`p-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 export function newProject(seed={}){
   const now=new Date().toISOString();
-  return {id:uid(),schemaVersion:2,createdAt:now,updatedAt:now,archived:false,fields:{...fieldDefaults,...seed},lists:defaultLists(),moduleStates:defaultModuleStates(),notes:Object.fromEntries(modules.map(m=>[m.id,''])),attachments:[],releases:[],style:{accent:'#15557a',font:'sans',cover:true,toc:true,showNotApplicable:false,logoPath:''}};
+  return {id:uid(),schemaVersion:2,createdAt:now,updatedAt:now,archived:false,fields:{...fieldDefaults,...seed},lists:defaultLists(),moduleStates:defaultModuleStates(),notes:Object.fromEntries(modules.map(m=>[m.id,''])),attachments:[],appliedTemplates:[],templateConflicts:[],releases:[],style:{accent:'#15557a',font:'sans',cover:true,toc:true,showNotApplicable:false,logoPath:''}};
 }
 export function emptyWorkspace(){return {schemaVersion:2,activeProjectId:null,projects:[]};}
 export function loadWorkspace(){
@@ -30,6 +30,8 @@ export function validateWorkspace(raw){
     if(!/^#[0-9a-f]{6}$/i.test(p.style.accent)||!['sans','serif'].includes(p.style.font))throw new Error('Invalid document identity settings.');
     if(p.style.logoPath===undefined)p.style.logoPath='';if(typeof p.style.logoPath!=='string'||p.style.logoPath.length>1000)throw new Error('Invalid logo reference.');
     if(p.attachments===undefined)p.attachments=[];if(!Array.isArray(p.attachments)||p.attachments.length>200||p.attachments.some(file=>!file||typeof file.id!=='string'||typeof file.path!=='string'||typeof file.name!=='string'||file.id.length>100||file.path.length>1000||file.name.length>255||!Number.isFinite(file.size)||file.size<0||file.size>26214400))throw new Error('Invalid attachment register.');
+    if(p.appliedTemplates===undefined)p.appliedTemplates=[];if(!Array.isArray(p.appliedTemplates)||p.appliedTemplates.length>200)throw new Error('Invalid applied template register.');
+    if(p.templateConflicts===undefined)p.templateConflicts=[];if(!Array.isArray(p.templateConflicts)||p.templateConflicts.length>500)throw new Error('Invalid template conflict register.');
   }
   return raw;
 }
@@ -47,7 +49,7 @@ export function migrateLegacySnapshot(raw){
 export function cloneProject(project){const copy=structuredClone(project);copy.id=uid();copy.fields.projectName=`${project.fields.projectName} — Copy`;copy.fields.projectCode='';copy.fields.documentCode='';copy.releases=[];copy.attachments=[];copy.style.logoPath='';copy.archived=false;copy.createdAt=copy.updatedAt=new Date().toISOString();return copy;}
 export function createRelease(project){
   const number=project.releases.length+1,at=new Date().toISOString();
-  const snapshot={fields:structuredClone(project.fields),lists:structuredClone(project.lists),moduleStates:structuredClone(project.moduleStates),notes:structuredClone(project.notes),attachments:structuredClone(project.attachments||[]),style:structuredClone(project.style)};
+  const snapshot={fields:structuredClone(project.fields),lists:structuredClone(project.lists),moduleStates:structuredClone(project.moduleStates),notes:structuredClone(project.notes),attachments:structuredClone(project.attachments||[]),appliedTemplates:structuredClone(project.appliedTemplates||[]),templateConflicts:structuredClone(project.templateConflicts||[]),style:structuredClone(project.style)};
   project.releases.push({id:uid(),number,revision:project.fields.revision||`R${number}`,issueDate:project.fields.issueDate||at.slice(0,10),createdAt:at,readiness:reviewProject(project).score,snapshot});project.updatedAt=at;return number;
 }
 export function restoreRelease(project,id){const rel=project.releases.find(r=>r.id===id);if(!rel)throw new Error('Issue not found.');Object.assign(project,structuredClone(rel.snapshot));project.updatedAt=new Date().toISOString();}
@@ -75,6 +77,7 @@ export function reviewProject(project){
   if(project.moduleStates.assets!=='not_applicable'&&!project.lists.assetRequirements.length)issues.push({severity:'warning',code:'asset-requirements',message:'Asset information is enabled but its requirement matrix is empty.'});
   if(project.lists.decisions.some(row=>row.status==='Open'))issues.push({severity:'warning',code:'open-decisions',message:'Open decisions or assumptions remain in the project register.'});
   if(project.lists.appendices.some(row=>['Removed','Not received','Missing'].includes(row.status)))issues.push({severity:'warning',code:'missing-appendices',message:'One or more referenced appendices are missing or removed.'});
+  if(project.templateConflicts?.length)issues.push({severity:'warning',code:'template-conflicts',message:`${project.templateConflicts.length} template conflict${project.templateConflicts.length===1?' remains':'s remain'} for review.`});
   const critical=issues.filter(i=>i.severity==='critical').length,warnings=issues.length-critical;
   const score=Math.max(0,Math.round(100-(critical*6+warnings*2)));
   return {issues,critical,warnings,score,ready:critical===0};
