@@ -1,38 +1,37 @@
 # BEP Studio
 
-A dependency-free, printable Post-Contract BEP prototype for a main contractor. Arabic editing controls and an English document. Source: `dist/` (authored static assets, not disposable build output).
+A browser-based Post-Contract BIM Execution Plan builder for a main contractor. The editor is Arabic and the generated BEP is English.
 
-## Cloudflare Pages deployment
+## Current release
 
-1. Workers & Pages → Create application → Pages → Connect to Git.
-2. Select this repository and production branch `main`.
-3. Framework preset: **None**.
-4. Build command: **leave empty**.
-5. Build output directory: **dist**.
-6. Root directory: **leave empty**.
-7. Save and Deploy. Future commits to `main` trigger deployment.
+- Multi-project dashboard with search, duplicate, archive and delete.
+- Automatic local persistence in `localStorage`.
+- 29 modular BEP sections with Required, Optional, Pending and Not Applicable states.
+- Structured project, appointment, CDE, software, model, milestone, delivery, clash and meeting inputs.
+- Dependency checking, including COBie / Asset Information and conditional 4D requirements.
+- Readiness review that separates blocking gaps from advisory items.
+- Immutable release snapshots with restore-to-draft.
+- Full-workspace JSON backup and restore.
+- Generic English Post-Contract BEP output with live numbering and project-specific provisions.
+- A4 print / Save as PDF layout.
+- Input escaping, backup validation and automated content/state tests.
 
-No database, environment variables, API keys, paid service or build dependencies are required for this prototype. Cloudflare-specific `_headers` sets response policies.
+## Cloudflare Pages
 
-## Features
+The production branch is `main`, the framework preset is **None**, and the output directory is `dist`. No build command is required.
 
-- Project and party names update throughout the document.
-- Eight selectable sections, including optional 4D.
-- Enabling/disabling sections updates the table of contents and section numbering.
-- 4D rows in responsibilities, BIM uses and delivery planning follow its inclusion state.
-- Per-section project notes, accent color, font, optional cover and contents.
-- A4 print stylesheet, repeating table headers, and printable draft content.
-- Download/open a versioned JSON snapshot of inputs, settings and notes.
-- Inputs are escaped before appearing as HTML; imported files are validated.
+## Data and privacy
 
-## Data and limitations
+This release stores projects only in the current browser profile. It does not upload project data. The deployed website remains public unless access protection is enabled in Cloudflare. Do not enter confidential project information on an unprotected shared device.
 
-The website is public unless separately protected at the hosting layer. A private GitHub repository alone does not make the deployed site private. No project data is uploaded by this app: inputs remain in the current tab and downloaded snapshots. No localStorage or server storage is used. Save a JSON snapshot before closing the tab. Imported snapshots replace the current session after confirmation if there are unsaved edits.
+Cloud persistence, sign-in and private attachment storage require Cloudflare Worker/D1/R2 bindings and are intentionally not simulated in browser code. The JSON backup is the portability and recovery mechanism until those bindings are configured.
 
-This is a first working slice, not the complete source BEP conversion. Generic wording and proposed responsibility assignments must be adapted to the appointment. Draft status remains visible. No claim of client approval or automatic standards compliance is made. The original project documents, owner standard, contacts, logos and signatures are not included.
+## Checks
 
-PDF is produced with the browser Print → Save as PDF. Choose A4, disable browser headers/footers, and enable background graphics for the cover color. Exact page breaks depend on the browser and fonts. Contents links are included; PDF page numbers and a page-numbered contents table are not implemented. DOCX export, accounts and cloud project storage are not implemented.
-
-## Local checks
-
-Serve `dist/` with a static HTTP server (ES modules require HTTP rather than opening an HTML file directly). Run `node --test tests/content.test.mjs` for document generation, conditional content, input escaping and snapshot validation checks.
+```bash
+node --test tests/app.test.mjs
+node --check dist/app.mjs
+node --check dist/document.mjs
+node --check dist/modules.mjs
+node --check dist/store.mjs
+```
