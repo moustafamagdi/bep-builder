@@ -9,22 +9,23 @@ A browser-based Post-Contract BIM Execution Plan builder for a main contractor. 
 - 29 modular BEP sections with Required, Optional, Pending and Not Applicable states.
 - Structured project, appointment, CDE, software, model, milestone, delivery, clash and meeting inputs.
 - Dependency checking, including COBie / Asset Information and conditional 4D requirements.
-- Readiness review that separates blocking gaps from advisory items.
+- Readiness review that separates blocking gaps from advisory items and links every result to its exact field, module or schedule row.
 - Immutable release snapshots with restore-to-draft.
 - Full-workspace JSON backup and restore.
 - Generic English Post-Contract BEP output with live numbering and project-specific provisions.
-- A4 print / Save as PDF layout.
+- Word-style A4 preview and PDF layout with controlled pagination, repeating project headers, footers and page numbers.
 - Input escaping, backup validation and automated content/state tests.
 - Email/password authentication, newest-version project merging and per-user Row Level Security.
 - Dedicated responsive authentication screen with sign in, confirmed-password sign up, show/hide password controls, password recovery and optional remembered sessions.
 - Private Supabase Storage bucket prepared for project attachments.
 - In-app private attachment upload, download and deletion with automatic appendix registration.
-- Per-project company logo upload and print-cover integration.
+- Up to four ordered project logos, with independent cover-only or cover-and-page-header placement.
 - Advanced responsibility, information exchange, naming, LOIN, QA/QC, asset requirement and decision schedules.
 - Multi-sheet Excel workbook export/import and per-schedule CSV exchange.
 - Import impact preview with merge and replace modes.
 - Private Company Template and Client Requirement Pack library.
 - Applied-template provenance and retained-conflict review.
+- Built-in generic Default BEP and anonymized Pilot BEP starting points derived from the supplied Post-Contract reference document.
 
 ## Cloudflare Pages
 
@@ -46,4 +47,7 @@ node --check dist/modules.mjs
 node --check dist/store.mjs
 node --check dist/spreadsheet.mjs
 node --check dist/templates.mjs
+node --check dist/presets.mjs
+node --check dist/pagination.mjs
+node --check dist/issue-navigation.mjs
 ```
