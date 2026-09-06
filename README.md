@@ -26,6 +26,9 @@ A browser-based Post-Contract BIM Execution Plan builder for a main contractor. 
 - Private Company Template and Client Requirement Pack library.
 - Applied-template provenance and retained-conflict review.
 - Built-in generic Default BEP and anonymized Pilot BEP starting points derived from the supplied Post-Contract reference document.
+- Revocable public read-only preview snapshots with expiry dates, printable A4 output and time-limited logo URLs.
+- One-use collaboration invitations with separate Viewer and Editor roles, member removal and leave-project controls.
+- Owner-preserving collaborative RLS for project data and private attachments.
 
 ## Cloudflare Pages
 
