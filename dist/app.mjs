@@ -4,6 +4,7 @@ import {buildDocument,esc} from './document.mjs';
 import {signIn,signUp,signOut,restoreSession,rememberedEmail,requestPasswordReset,consumeAuthRedirect,updatePassword,fetchCloudProjects,upsertCloudProject,deleteCloudProject,mergeProjectSets,uploadAttachment,downloadAttachment,deleteAttachment,fetchCloudTemplates,upsertCloudTemplate,deleteCloudTemplate} from './cloud.mjs';
 import {toCsv,fromCsv,createWorkbook,readWorkbook,mergeRows} from './spreadsheet.mjs';
 import {captureTemplate,previewTemplate,applyTemplate} from './templates.mjs';
+import {renderTurnstile,captchaToken,resetTurnstile} from './turnstile.mjs';
 
 const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
 let workspace=loadWorkspace(),active=null,activeView='project',saveTimer,toastTimer,cloudTimer,session=null,logoObjectUrl='',templates=[],pendingImport=null,pendingTemplate=null,csvTarget='';
@@ -147,6 +148,7 @@ function showAuthView(view,{message='',success=false}={}){
   if(standard){const signup=view==='signup';$('#auth-title').textContent=signup?'Create your account':'Welcome back';$('#auth-subtitle').textContent=signup?'Set up secure access to your BEP workspace.':'Sign in to continue to your BIM Execution Plans.';}
   clearAuthMessage();if(message)showAuthMessage(message,success);
   const email=rememberedEmail();if(email)$$(`[data-auth-form="${view}"] input[name="email"]`).forEach(input=>input.value=email);
+  if(['signin','signup','forgot'].includes(view))renderTurnstile(view).catch(error=>showAuthMessage(error.message));
   setTimeout(()=>document.querySelector(`[data-auth-form="${view}"] input:not([type="checkbox"])`)?.focus(),50);
 }
 function unlockApp(){$('#auth-screen').hidden=true;document.body.classList.remove('auth-locked');}
@@ -161,27 +163,30 @@ $$('[data-auth-view]').forEach(button=>button.addEventListener('click',()=>showA
 $$('[data-toggle-password]').forEach(button=>button.addEventListener('click',()=>{const input=button.parentElement.querySelector('input'),show=input.type==='password';input.type=show?'text':'password';button.textContent=show?'Hide':'Show';button.setAttribute('aria-label',`${show?'Hide':'Show'} password`);}));
 $('#signin-form').addEventListener('submit',async event=>{
   event.preventDefault();const form=event.currentTarget,data=new FormData(form),email=String(data.get('email')).trim(),password=String(data.get('password')),remember=data.get('remember')==='on';
+  const token=captchaToken('signin');if(!token){showAuthMessage('Complete the security verification before signing in.');return;}
   clearAuthMessage();setAuthBusy(form,true,'Signing in…');
-  try{session=await signIn(email,password,remember);await syncWorkspace();unlockApp();}
+  try{session=await signIn(email,password,remember,token);await syncWorkspace();unlockApp();}
   catch(error){showAuthMessage(error.message);}
-  finally{setAuthBusy(form,false);}
+  finally{resetTurnstile('signin');setAuthBusy(form,false);}
 });
 $('#signup-form').addEventListener('submit',async event=>{
   event.preventDefault();const form=event.currentTarget,data=new FormData(form),email=String(data.get('email')).trim(),password=String(data.get('password')),confirmPassword=String(data.get('confirmPassword')),remember=data.get('remember')==='on';
   if(password!==confirmPassword){showAuthMessage('The password confirmation does not match.');return;}
+  const token=captchaToken('signup');if(!token){showAuthMessage('Complete the security verification before creating your account.');return;}
   clearAuthMessage();setAuthBusy(form,true,'Creating account…');
   try{
-    const result=await signUp(email,password,remember,location.origin);
+    const result=await signUp(email,password,remember,location.origin,token);
     if(result?.access_token){session=result;await syncWorkspace();unlockApp();}
     else showAuthView('signin',{message:'Account created. Check your email to confirm it, then sign in.',success:true});
   }catch(error){showAuthMessage(error.message);}
-  finally{setAuthBusy(form,false);}
+  finally{resetTurnstile('signup');setAuthBusy(form,false);}
 });
 $('#forgot-form').addEventListener('submit',async event=>{
   event.preventDefault();const form=event.currentTarget,email=String(new FormData(form).get('email')).trim();clearAuthMessage();setAuthBusy(form,true,'Sending…');
-  try{await requestPasswordReset(email,location.origin);showAuthMessage('If an account exists for this email, a reset link has been sent. Check your inbox and spam folder.',true);}
+  const token=captchaToken('forgot');if(!token){setAuthBusy(form,false);showAuthMessage('Complete the security verification before requesting a reset link.');return;}
+  try{await requestPasswordReset(email,location.origin,token);showAuthMessage('If an account exists for this email, a reset link has been sent. Check your inbox and spam folder.',true);}
   catch(error){showAuthMessage(error.message);}
-  finally{setAuthBusy(form,false);}
+  finally{resetTurnstile('forgot');setAuthBusy(form,false);}
 });
 $('#reset-form').addEventListener('submit',async event=>{
   event.preventDefault();const form=event.currentTarget,data=new FormData(form),password=String(data.get('password')),confirmPassword=String(data.get('confirmPassword'));

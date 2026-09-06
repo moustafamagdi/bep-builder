@@ -7,6 +7,7 @@
   <meta name="robots" content="noindex,nofollow">
   <title>BEP Studio</title>
   <link rel="stylesheet" href="./styles.css">
+  <script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit" async defer></script>
 </head>
 <body class="auth-locked">
   <section id="auth-screen" class="auth-screen" aria-label="BEP Studio account access">
@@ -26,6 +27,7 @@
           <label>Email address<input name="email" type="email" autocomplete="email" placeholder="name@company.com" required></label>
           <label>Password<span class="password-wrap"><input name="password" type="password" autocomplete="current-password" placeholder="Enter your password" minlength="8" required><button type="button" data-toggle-password aria-label="Show password">Show</button></span></label>
           <div class="auth-options"><label class="remember"><input name="remember" type="checkbox" checked> Remember my login</label><button type="button" class="auth-link" data-auth-view="forgot">Forgot password?</button></div>
+          <div class="turnstile-field"><div id="turnstile-signin" class="turnstile-widget" aria-label="Security verification"></div><small>Protected by Cloudflare Turnstile</small></div>
           <button class="auth-submit" type="submit">Sign in</button>
         </form>
 
@@ -34,6 +36,7 @@
           <label>Password<span class="password-wrap"><input name="password" type="password" autocomplete="new-password" placeholder="Minimum 8 characters" minlength="8" required><button type="button" data-toggle-password aria-label="Show password">Show</button></span></label>
           <label>Confirm password<span class="password-wrap"><input name="confirmPassword" type="password" autocomplete="new-password" placeholder="Re-enter your password" minlength="8" required><button type="button" data-toggle-password aria-label="Show password">Show</button></span></label>
           <label class="remember"><input name="remember" type="checkbox" checked> Remember my login on this device</label>
+          <div class="turnstile-field"><div id="turnstile-signup" class="turnstile-widget" aria-label="Security verification"></div><small>Protected by Cloudflare Turnstile</small></div>
           <button class="auth-submit" type="submit">Create account</button>
         </form>
 
@@ -41,6 +44,7 @@
           <button type="button" class="auth-back" data-auth-view="signin">← Back to sign in</button>
           <h2>Reset your password</h2><p>Enter your account email and we will send you a secure reset link.</p>
           <label>Email address<input name="email" type="email" autocomplete="email" placeholder="name@company.com" required></label>
+          <div class="turnstile-field"><div id="turnstile-forgot" class="turnstile-widget" aria-label="Security verification"></div><small>Protected by Cloudflare Turnstile</small></div>
           <button class="auth-submit" type="submit">Send reset link</button>
         </form>
 

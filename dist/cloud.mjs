@@ -31,14 +31,16 @@ function normalizeSession(data){
   return {...data,expires_at:data.expires_at||Math.floor(Date.now()/1000)+(data.expires_in||3600)};
 }
 
-export async function signIn(email,password,remember=true){
-  const session=writeSession(normalizeSession(await api('/auth/v1/token?grant_type=password',{method:'POST',body:{email,password}})),remember);
+const withCaptcha=(body,captchaToken)=>({...body,gotrue_meta_security:{captcha_token:captchaToken}});
+
+export async function signIn(email,password,remember=true,captchaToken=''){
+  const session=writeSession(normalizeSession(await api('/auth/v1/token?grant_type=password',{method:'POST',body:withCaptcha({email,password},captchaToken)})),remember);
   if(remember)localStorage.setItem(EMAIL_KEY,email);else localStorage.removeItem(EMAIL_KEY);
   return session;
 }
 
-export async function signUp(email,password,remember=true,redirectTo=location.origin){
-  const data=await api(`/auth/v1/signup?redirect_to=${encodeURIComponent(redirectTo)}`,{method:'POST',body:{email,password}});
+export async function signUp(email,password,remember=true,redirectTo=location.origin,captchaToken=''){
+  const data=await api(`/auth/v1/signup?redirect_to=${encodeURIComponent(redirectTo)}`,{method:'POST',body:withCaptcha({email,password},captchaToken)});
   if(data?.access_token)writeSession(normalizeSession(data),remember);
   if(remember)localStorage.setItem(EMAIL_KEY,email);
   return data;
@@ -64,8 +66,8 @@ export async function restoreSession(){
 
 export function rememberedEmail(){return localStorage.getItem(EMAIL_KEY)||'';}
 
-export async function requestPasswordReset(email,redirectTo=location.origin){
-  await api(`/auth/v1/recover?redirect_to=${encodeURIComponent(redirectTo)}`,{method:'POST',body:{email}});
+export async function requestPasswordReset(email,redirectTo=location.origin,captchaToken=''){
+  await api(`/auth/v1/recover?redirect_to=${encodeURIComponent(redirectTo)}`,{method:'POST',body:withCaptcha({email},captchaToken)});
 }
 
 export async function consumeAuthRedirect(){
