@@ -12,7 +12,7 @@ export const fieldDefaults={
 const uid=()=>globalThis.crypto?.randomUUID?.()||`p-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 export function newProject(seed={}){
   const now=new Date().toISOString();
-  return {id:uid(),schemaVersion:2,createdAt:now,updatedAt:now,archived:false,fields:{...fieldDefaults,...seed},lists:defaultLists(),moduleStates:defaultModuleStates(),notes:Object.fromEntries(modules.map(m=>[m.id,''])),attachments:[],appliedTemplates:[],templateConflicts:[],releases:[],style:{accent:'#15557a',font:'sans',cover:true,toc:true,showNotApplicable:false,logoPath:''}};
+  return {id:uid(),schemaVersion:2,preset:'blank',createdAt:now,updatedAt:now,archived:false,fields:{...fieldDefaults,...seed},lists:defaultLists(),moduleStates:defaultModuleStates(),notes:Object.fromEntries(modules.map(m=>[m.id,''])),attachments:[],appliedTemplates:[],templateConflicts:[],releases:[],style:{accent:'#15557a',font:'sans',cover:true,toc:true,showNotApplicable:false,logoPath:'',logoCount:0,logos:[]}};
 }
 export function emptyWorkspace(){return {schemaVersion:2,activeProjectId:null,projects:[]};}
 export function loadWorkspace(){
@@ -28,7 +28,13 @@ export function validateWorkspace(raw){
     const defaults=defaultLists();for(const key of Object.keys(defaults)){if(p.lists[key]===undefined)p.lists[key]=structuredClone(defaults[key]);if(!Array.isArray(p.lists[key])||p.lists[key].length>500)throw new Error(`Invalid table: ${key}`);}
     for(const m of modules)if(!['required','optional','pending','not_applicable'].includes(p.moduleStates[m.id]))throw new Error(`Invalid module status: ${m.id}`);
     if(!/^#[0-9a-f]{6}$/i.test(p.style.accent)||!['sans','serif'].includes(p.style.font))throw new Error('Invalid document identity settings.');
+    if(p.preset===undefined)p.preset='blank';if(!['blank','default','pilot'].includes(p.preset))p.preset='blank';
     if(p.style.logoPath===undefined)p.style.logoPath='';if(typeof p.style.logoPath!=='string'||p.style.logoPath.length>1000)throw new Error('Invalid logo reference.');
+    if(p.style.logos===undefined)p.style.logos=p.style.logoPath?[{id:'legacy-logo',path:p.style.logoPath,name:'Project logo',placement:'both'}]:[];
+    if(p.style.logoCount===undefined)p.style.logoCount=p.style.logos.length;
+    p.style.logoCount=Math.max(0,Math.min(4,Number(p.style.logoCount)||0));
+    if(!Array.isArray(p.style.logos)||p.style.logos.length>4||p.style.logos.some(logo=>!logo||typeof logo.id!=='string'||typeof logo.path!=='string'||typeof logo.name!=='string'||!['cover','both'].includes(logo.placement)||logo.path.length>1000||logo.name.length>255))throw new Error('Invalid project logo configuration.');
+    while(p.style.logos.length<p.style.logoCount)p.style.logos.push({id:`logo-slot-${p.style.logos.length+1}`,path:'',name:'',placement:'both'});
     if(p.attachments===undefined)p.attachments=[];if(!Array.isArray(p.attachments)||p.attachments.length>200||p.attachments.some(file=>!file||typeof file.id!=='string'||typeof file.path!=='string'||typeof file.name!=='string'||file.id.length>100||file.path.length>1000||file.name.length>255||!Number.isFinite(file.size)||file.size<0||file.size>26214400))throw new Error('Invalid attachment register.');
     if(p.appliedTemplates===undefined)p.appliedTemplates=[];if(!Array.isArray(p.appliedTemplates)||p.appliedTemplates.length>200)throw new Error('Invalid applied template register.');
     if(p.templateConflicts===undefined)p.templateConflicts=[];if(!Array.isArray(p.templateConflicts)||p.templateConflicts.length>500)throw new Error('Invalid template conflict register.');
@@ -46,7 +52,7 @@ export function migrateLegacySnapshot(raw){
   if(raw.style){if(/^#[0-9a-f]{6}$/i.test(raw.style.accent))p.style.accent=raw.style.accent;if(['sans','serif'].includes(raw.style.font))p.style.font=raw.style.font;p.style.cover=raw.style.cover!==false;p.style.toc=raw.style.toc!==false;}
   return {schemaVersion:2,activeProjectId:null,projects:[p]};
 }
-export function cloneProject(project){const copy=structuredClone(project);copy.id=uid();copy.fields.projectName=`${project.fields.projectName} — Copy`;copy.fields.projectCode='';copy.fields.documentCode='';copy.releases=[];copy.attachments=[];copy.style.logoPath='';copy.archived=false;copy.createdAt=copy.updatedAt=new Date().toISOString();return copy;}
+export function cloneProject(project){const copy=structuredClone(project);copy.id=uid();copy.fields.projectName=`${project.fields.projectName} — Copy`;copy.fields.projectCode='';copy.fields.documentCode='';copy.releases=[];copy.attachments=[];copy.style.logoPath='';copy.style.logos=[];copy.style.logoCount=0;copy.archived=false;copy.createdAt=copy.updatedAt=new Date().toISOString();return copy;}
 export function createRelease(project){
   const number=project.releases.length+1,at=new Date().toISOString();
   const snapshot={fields:structuredClone(project.fields),lists:structuredClone(project.lists),moduleStates:structuredClone(project.moduleStates),notes:structuredClone(project.notes),attachments:structuredClone(project.attachments||[]),appliedTemplates:structuredClone(project.appliedTemplates||[]),templateConflicts:structuredClone(project.templateConflicts||[]),style:structuredClone(project.style)};
