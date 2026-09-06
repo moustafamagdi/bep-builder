@@ -12,7 +12,7 @@ export const fieldDefaults={
 const uid=()=>globalThis.crypto?.randomUUID?.()||`p-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 export function newProject(seed={}){
   const now=new Date().toISOString();
-  return {id:uid(),schemaVersion:2,preset:'blank',accessRole:'owner',ownerId:'',createdAt:now,updatedAt:now,archived:false,fields:{...fieldDefaults,...seed},lists:defaultLists(),moduleStates:defaultModuleStates(),notes:Object.fromEntries(modules.map(m=>[m.id,''])),attachments:[],appliedTemplates:[],templateConflicts:[],releases:[],style:{accent:'#15557a',font:'sans',cover:true,toc:true,showNotApplicable:false,logoPath:'',logoCount:0,logos:[]}};
+  return {id:uid(),schemaVersion:2,preset:'blank',accessRole:'owner',ownerId:'',dbVersion:0,createdAt:now,updatedAt:now,archived:false,fields:{...fieldDefaults,...seed},lists:defaultLists(),moduleStates:defaultModuleStates(),notes:Object.fromEntries(modules.map(m=>[m.id,''])),attachments:[],appliedTemplates:[],templateConflicts:[],releases:[],style:{accent:'#15557a',font:'sans',cover:true,toc:true,showNotApplicable:false,logoPath:'',logoCount:0,logos:[]}};
 }
 export function emptyWorkspace(){return {schemaVersion:2,activeProjectId:null,projects:[]};}
 export function loadWorkspace(){
@@ -31,6 +31,7 @@ export function validateWorkspace(raw){
     if(p.preset===undefined)p.preset='blank';if(!['blank','default','pilot'].includes(p.preset))p.preset='blank';
     if(p.accessRole===undefined)p.accessRole='owner';if(!['owner','editor','viewer'].includes(p.accessRole))p.accessRole='owner';
     if(p.ownerId===undefined)p.ownerId='';if(typeof p.ownerId!=='string'||p.ownerId.length>100)throw new Error('Invalid project owner reference.');
+    if(p.dbVersion===undefined)p.dbVersion=0;p.dbVersion=Number(p.dbVersion)||0;if(!Number.isInteger(p.dbVersion)||p.dbVersion<0)throw new Error('Invalid cloud project version.');
     if(p.style.logoPath===undefined)p.style.logoPath='';if(typeof p.style.logoPath!=='string'||p.style.logoPath.length>1000)throw new Error('Invalid logo reference.');
     if(p.style.logos===undefined)p.style.logos=p.style.logoPath?[{id:'legacy-logo',path:p.style.logoPath,name:'Project logo',placement:'both'}]:[];
     if(p.style.logoCount===undefined)p.style.logoCount=p.style.logos.length;
@@ -54,7 +55,7 @@ export function migrateLegacySnapshot(raw){
   if(raw.style){if(/^#[0-9a-f]{6}$/i.test(raw.style.accent))p.style.accent=raw.style.accent;if(['sans','serif'].includes(raw.style.font))p.style.font=raw.style.font;p.style.cover=raw.style.cover!==false;p.style.toc=raw.style.toc!==false;}
   return {schemaVersion:2,activeProjectId:null,projects:[p]};
 }
-export function cloneProject(project){const copy=structuredClone(project);copy.id=uid();copy.fields.projectName=`${project.fields.projectName} — Copy`;copy.fields.projectCode='';copy.fields.documentCode='';copy.releases=[];copy.attachments=[];copy.style.logoPath='';copy.style.logos=[];copy.style.logoCount=0;copy.accessRole='owner';copy.ownerId='';copy.archived=false;copy.createdAt=copy.updatedAt=new Date().toISOString();return copy;}
+export function cloneProject(project){const copy=structuredClone(project);copy.id=uid();copy.fields.projectName=`${project.fields.projectName} — Copy`;copy.fields.projectCode='';copy.fields.documentCode='';copy.releases=[];copy.attachments=[];copy.style.logoPath='';copy.style.logos=[];copy.style.logoCount=0;copy.accessRole='owner';copy.ownerId='';copy.dbVersion=0;copy.archived=false;copy.createdAt=copy.updatedAt=new Date().toISOString();return copy;}
 export function createRelease(project){
   const number=project.releases.length+1,at=new Date().toISOString();
   const snapshot={fields:structuredClone(project.fields),lists:structuredClone(project.lists),moduleStates:structuredClone(project.moduleStates),notes:structuredClone(project.notes),attachments:structuredClone(project.attachments||[]),appliedTemplates:structuredClone(project.appliedTemplates||[]),templateConflicts:structuredClone(project.templateConflicts||[]),style:structuredClone(project.style)};
