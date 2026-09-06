@@ -97,17 +97,17 @@ async function activeSession(){
 export async function fetchCloudProjects(){
   const session=await activeSession();
   const [rows,memberships]=await Promise.all([
-    api('/rest/v1/bep_projects?select=user_id,project_data&order=updated_at.desc',{token:session.access_token}),
+    api('/rest/v1/bep_projects?select=user_id,project_data,version,updated_at&order=updated_at.desc',{token:session.access_token}),
     api('/rest/v1/bep_project_collaborators?select=project_id,user_id,role',{token:session.access_token})
   ]);
   const roles=new Map((memberships||[]).filter(row=>row.user_id===session.user.id).map(row=>[row.project_id,row.role]));
-  return Array.isArray(rows)?rows.map(row=>row.project_data?{...row.project_data,ownerId:row.user_id,accessRole:row.user_id===session.user.id?'owner':roles.get(row.project_data.id)||'viewer'}:null).filter(Boolean):[];
+  return Array.isArray(rows)?rows.map(row=>row.project_data?{...row.project_data,updatedAt:row.updated_at||row.project_data.updatedAt,dbVersion:Number(row.version)||1,ownerId:row.user_id,accessRole:row.user_id===session.user.id?'owner':roles.get(row.project_data.id)||'viewer'}:null).filter(Boolean):[];
 }
 
 export async function upsertCloudProject(project){
   const session=await activeSession();
   if(project.accessRole==='viewer')throw new Error('This project is shared with view-only access.');
-  const stored=structuredClone(project);delete stored.accessRole;delete stored.ownerId;
+  const stored=structuredClone(project);delete stored.accessRole;delete stored.ownerId;delete stored.dbVersion;
   const common={name:project.fields.projectName||'',code:project.fields.projectCode||'',archived:Boolean(project.archived),project_data:stored,updated_at:project.updatedAt};
   if(project.accessRole==='editor'&&project.ownerId){
     await api(`/rest/v1/bep_projects?id=eq.${encodeURIComponent(project.id)}`,{method:'PATCH',token:session.access_token,headers:{Prefer:'return=minimal'},body:common});
@@ -115,6 +115,28 @@ export async function upsertCloudProject(project){
   }
   const row={id:project.id,user_id:session.user.id,...common,created_at:project.createdAt};
   await api('/rest/v1/bep_projects?on_conflict=id',{method:'POST',token:session.access_token,headers:{Prefer:'resolution=merge-duplicates,return=minimal'},body:row});
+}
+
+export async function acquireProjectSection(projectId,sectionKey,clientId){
+  const session=await activeSession();
+  return await api('/rest/v1/rpc/acquire_bep_section_lock',{method:'POST',token:session.access_token,body:{p_project_id:projectId,p_section_key:sectionKey,p_client_id:clientId}});
+}
+
+export async function renewProjectSection(projectId,sectionKey,clientId){
+  const session=await activeSession();
+  return await api('/rest/v1/rpc/heartbeat_bep_section_lock',{method:'POST',token:session.access_token,body:{p_project_id:projectId,p_section_key:sectionKey,p_client_id:clientId}});
+}
+
+export async function releaseProjectSection(projectId,sectionKey,clientId,{force=false,keepalive=false}={}){
+  const session=await activeSession();
+  return await api('/rest/v1/rpc/release_bep_section_lock',{method:'POST',token:session.access_token,body:{p_project_id:projectId,p_section_key:sectionKey,p_client_id:clientId,p_force:force},headers:keepalive?{'X-BEP-Keepalive':'1'}:{}});
+}
+
+export async function saveCloudProjectSection(project,sectionKey,clientId,patch){
+  const session=await activeSession();
+  const result=await api('/rest/v1/rpc/save_bep_project_section',{method:'POST',token:session.access_token,body:{p_project_id:project.id,p_section_key:sectionKey,p_client_id:clientId,p_patch:patch,p_expected_version:Number(project.dbVersion)||1}});
+  if(!result?.project)throw new Error('The section save did not return the updated project.');
+  return {...result.project,updatedAt:result.updatedAt||result.project.updatedAt,dbVersion:Number(result.version)||Number(project.dbVersion)||1,ownerId:project.ownerId,accessRole:project.accessRole};
 }
 
 export async function deleteCloudProject(id){
@@ -175,7 +197,7 @@ export async function fetchPublicShares(projectId){
 export async function createPublicShare(project,title,expiresDays=30,publicLogos=[]){
   const session=await activeSession();if(project.accessRole&&project.accessRole!=='owner')throw new Error('Only the project owner can publish a public preview.');
   const token=tokenBytes(),id=crypto.randomUUID(),expiresAt=new Date(Date.now()+Number(expiresDays)*86400000).toISOString(),stored=structuredClone(project);
-  stored.attachments=[];stored.releases=(stored.releases||[]).map(({id,number,revision,issueDate,createdAt,readiness})=>({id,number,revision,issueDate,createdAt,readiness}));stored.style.logos=(stored.style.logos||[]).map(logo=>({...logo,path:''}));delete stored.ownerId;delete stored.accessRole;
+  stored.attachments=[];stored.releases=(stored.releases||[]).map(({id,number,revision,issueDate,createdAt,readiness})=>({id,number,revision,issueDate,createdAt,readiness}));stored.style.logos=(stored.style.logos||[]).map(logo=>({...logo,path:''}));delete stored.ownerId;delete stored.accessRole;delete stored.dbVersion;
   await api('/rest/v1/bep_public_shares',{method:'POST',token:session.access_token,headers:{Prefer:'return=minimal'},body:{id,project_id:project.id,owner_id:session.user.id,token_hash:await tokenHash(token),title:title||`${project.fields.projectName} preview`,project_data:stored,public_logos:publicLogos,expires_at:expiresAt}});
   return {id,token,url:shareUrl(token),expiresAt};
 }
@@ -209,10 +231,12 @@ export async function removeProjectCollaborator(projectId,userId){const session=
 export async function leaveSharedProject(projectId){const session=await activeSession();await removeProjectCollaborator(projectId,session.user.id);}
 
 export function mergeProjectSets(localProjects,cloudProjects){
-  const merged=new Map();
-  for(const project of [...cloudProjects,...localProjects]){
+  const merged=new Map(cloudProjects.map(project=>[project.id,project]));
+  for(const project of localProjects){
     const current=merged.get(project.id);
-    if(!current||String(project.updatedAt||'')>String(current.updatedAt||''))merged.set(project.id,project);
+    if(!current){merged.set(project.id,project);continue;}
+    const localVersion=Number(project.dbVersion)||0,cloudVersion=Number(current.dbVersion)||0;
+    if(localVersion>cloudVersion||(localVersion===0&&cloudVersion===0&&String(project.updatedAt||'')>String(current.updatedAt||'')))merged.set(project.id,project);
   }
   return [...merged.values()];
 }
