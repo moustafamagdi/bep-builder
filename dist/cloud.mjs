@@ -96,13 +96,24 @@ async function activeSession(){
 
 export async function fetchCloudProjects(){
   const session=await activeSession();
-  const rows=await api('/rest/v1/bep_projects?select=project_data&order=updated_at.desc',{token:session.access_token});
-  return Array.isArray(rows)?rows.map(row=>row.project_data).filter(Boolean):[];
+  const [rows,memberships]=await Promise.all([
+    api('/rest/v1/bep_projects?select=user_id,project_data&order=updated_at.desc',{token:session.access_token}),
+    api('/rest/v1/bep_project_collaborators?select=project_id,user_id,role',{token:session.access_token})
+  ]);
+  const roles=new Map((memberships||[]).filter(row=>row.user_id===session.user.id).map(row=>[row.project_id,row.role]));
+  return Array.isArray(rows)?rows.map(row=>row.project_data?{...row.project_data,ownerId:row.user_id,accessRole:row.user_id===session.user.id?'owner':roles.get(row.project_data.id)||'viewer'}:null).filter(Boolean):[];
 }
 
 export async function upsertCloudProject(project){
   const session=await activeSession();
-  const row={id:project.id,user_id:session.user.id,name:project.fields.projectName||'',code:project.fields.projectCode||'',archived:Boolean(project.archived),project_data:project,created_at:project.createdAt,updated_at:project.updatedAt};
+  if(project.accessRole==='viewer')throw new Error('This project is shared with view-only access.');
+  const stored=structuredClone(project);delete stored.accessRole;delete stored.ownerId;
+  const common={name:project.fields.projectName||'',code:project.fields.projectCode||'',archived:Boolean(project.archived),project_data:stored,updated_at:project.updatedAt};
+  if(project.accessRole==='editor'&&project.ownerId){
+    await api(`/rest/v1/bep_projects?id=eq.${encodeURIComponent(project.id)}`,{method:'PATCH',token:session.access_token,headers:{Prefer:'return=minimal'},body:common});
+    return;
+  }
+  const row={id:project.id,user_id:session.user.id,...common,created_at:project.createdAt};
   await api('/rest/v1/bep_projects?on_conflict=id',{method:'POST',token:session.access_token,headers:{Prefer:'resolution=merge-duplicates,return=minimal'},body:row});
 }
 
@@ -150,6 +161,52 @@ export async function deleteAttachment(path){
   const session=await activeSession();
   await api('/storage/v1/object/bep-attachments',{method:'DELETE',token:session.access_token,body:{prefixes:[path]}});
 }
+
+const tokenBytes=()=>{const bytes=new Uint8Array(32);crypto.getRandomValues(bytes);return [...bytes].map(value=>value.toString(16).padStart(2,'0')).join('');};
+const tokenHash=async token=>{const bytes=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(token));return [...new Uint8Array(bytes)].map(value=>value.toString(16).padStart(2,'0')).join('');};
+const shareUrl=token=>`${location.origin}${location.pathname}?share=${encodeURIComponent(token)}`;
+const inviteUrl=token=>`${location.origin}${location.pathname}?invite=${encodeURIComponent(token)}`;
+
+export async function fetchPublicShares(projectId){
+  const session=await activeSession();
+  return await api(`/rest/v1/bep_public_shares?project_id=eq.${encodeURIComponent(projectId)}&select=id,title,created_at,expires_at,revoked_at,public_logos&order=created_at.desc`,{token:session.access_token})||[];
+}
+
+export async function createPublicShare(project,title,expiresDays=30,publicLogos=[]){
+  const session=await activeSession();if(project.accessRole&&project.accessRole!=='owner')throw new Error('Only the project owner can publish a public preview.');
+  const token=tokenBytes(),id=crypto.randomUUID(),expiresAt=new Date(Date.now()+Number(expiresDays)*86400000).toISOString(),stored=structuredClone(project);
+  stored.attachments=[];stored.releases=(stored.releases||[]).map(({id,number,revision,issueDate,createdAt,readiness})=>({id,number,revision,issueDate,createdAt,readiness}));stored.style.logos=(stored.style.logos||[]).map(logo=>({...logo,path:''}));delete stored.ownerId;delete stored.accessRole;
+  await api('/rest/v1/bep_public_shares',{method:'POST',token:session.access_token,headers:{Prefer:'return=minimal'},body:{id,project_id:project.id,owner_id:session.user.id,token_hash:await tokenHash(token),title:title||`${project.fields.projectName} preview`,project_data:stored,public_logos:publicLogos,expires_at:expiresAt}});
+  return {id,token,url:shareUrl(token),expiresAt};
+}
+
+export async function fetchPublicShare(token){return await api('/rest/v1/rpc/get_bep_public_share',{method:'POST',body:{p_token:token}});}
+
+export async function revokePublicShare(id){
+  const session=await activeSession();
+  await api(`/rest/v1/bep_public_shares?id=eq.${encodeURIComponent(id)}`,{method:'PATCH',token:session.access_token,headers:{Prefer:'return=minimal'},body:{revoked_at:new Date().toISOString()}});
+}
+
+export async function createSignedAttachmentUrl(path,expiresIn){
+  const session=await activeSession(),data=await api(`/storage/v1/object/sign/bep-attachments/${storagePath(path)}`,{method:'POST',token:session.access_token,body:{expiresIn:Math.max(60,Number(expiresIn)||60)}}),signed=data?.signedURL||data?.signedUrl;
+  if(!signed)throw new Error('The public logo link could not be created.');return signed.startsWith('http')?signed:`${SUPABASE_URL}/storage/v1${signed}`;
+}
+
+export async function fetchProjectInvites(projectId){
+  const session=await activeSession();return await api(`/rest/v1/bep_project_invites?project_id=eq.${encodeURIComponent(projectId)}&select=id,role,created_at,expires_at,accepted_at,revoked_at&order=created_at.desc`,{token:session.access_token})||[];
+}
+
+export async function createProjectInvite(projectId,role='editor',expiresDays=7){
+  const session=await activeSession(),token=tokenBytes(),id=crypto.randomUUID(),expiresAt=new Date(Date.now()+Number(expiresDays)*86400000).toISOString();
+  await api('/rest/v1/bep_project_invites',{method:'POST',token:session.access_token,headers:{Prefer:'return=minimal'},body:{id,project_id:projectId,owner_id:session.user.id,token_hash:await tokenHash(token),role,expires_at:expiresAt}});
+  return {id,token,url:inviteUrl(token),expiresAt,role};
+}
+
+export async function revokeProjectInvite(id){const session=await activeSession();await api(`/rest/v1/bep_project_invites?id=eq.${encodeURIComponent(id)}`,{method:'PATCH',token:session.access_token,headers:{Prefer:'return=minimal'},body:{revoked_at:new Date().toISOString()}});}
+export async function acceptProjectInvite(token){const session=await activeSession();return await api('/rest/v1/rpc/accept_bep_project_invite',{method:'POST',token:session.access_token,body:{p_token:token}});}
+export async function fetchProjectCollaborators(projectId){const session=await activeSession();return await api(`/rest/v1/bep_project_collaborators?project_id=eq.${encodeURIComponent(projectId)}&select=project_id,user_id,role,collaborator_email,accepted_at&order=accepted_at.asc`,{token:session.access_token})||[];}
+export async function removeProjectCollaborator(projectId,userId){const session=await activeSession();await api(`/rest/v1/bep_project_collaborators?project_id=eq.${encodeURIComponent(projectId)}&user_id=eq.${encodeURIComponent(userId)}`,{method:'DELETE',token:session.access_token,headers:{Prefer:'return=minimal'}});}
+export async function leaveSharedProject(projectId){const session=await activeSession();await removeProjectCollaborator(projectId,session.user.id);}
 
 export function mergeProjectSets(localProjects,cloudProjects){
   const merged=new Map();
