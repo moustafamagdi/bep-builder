@@ -29,6 +29,9 @@ A browser-based Post-Contract BIM Execution Plan builder for a main contractor. 
 - Revocable public read-only preview snapshots with expiry dates, printable A4 output and time-limited logo URLs.
 - One-use collaboration invitations with separate Viewer and Editor roles, member removal and leave-project controls.
 - Owner-preserving collaborative RLS for project data and private attachments.
+- Revit-style section borrowing with per-tab reservations, automatic heartbeat, expiry and owner force-release.
+- Versioned, section-scoped cloud saves so parallel work in different BEP areas cannot overwrite unrelated changes.
+- Section-scoped Undo/Redo controls with Ctrl+Z, Ctrl+Y and Ctrl+Shift+Z shortcuts.
 
 ## Cloudflare Pages
 
@@ -53,4 +56,5 @@ node --check dist/templates.mjs
 node --check dist/presets.mjs
 node --check dist/pagination.mjs
 node --check dist/issue-navigation.mjs
+node --check dist/collaboration.mjs
 ```
