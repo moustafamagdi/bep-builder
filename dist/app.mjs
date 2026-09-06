@@ -1,43 +1,88 @@
 import {modules,moduleGroups,statuses,fieldGroups,listSchemas} from './modules.mjs';
 import {loadWorkspace,saveWorkspace,validateWorkspace,migrateLegacySnapshot,newProject,cloneProject,createRelease,restoreRelease,reviewProject} from './store.mjs';
 import {buildDocument,esc} from './document.mjs';
-import {signIn,signUp,signOut,restoreSession,rememberedEmail,requestPasswordReset,consumeAuthRedirect,updatePassword,fetchCloudProjects,upsertCloudProject,deleteCloudProject,mergeProjectSets,uploadAttachment,downloadAttachment,deleteAttachment,fetchCloudTemplates,upsertCloudTemplate,deleteCloudTemplate,fetchPublicShares,createPublicShare,fetchPublicShare,revokePublicShare,createSignedAttachmentUrl,fetchProjectInvites,createProjectInvite,revokeProjectInvite,acceptProjectInvite,fetchProjectCollaborators,removeProjectCollaborator,leaveSharedProject} from './cloud.mjs';
+import {signIn,signUp,signOut,restoreSession,rememberedEmail,requestPasswordReset,consumeAuthRedirect,updatePassword,fetchCloudProjects,upsertCloudProject,deleteCloudProject,mergeProjectSets,uploadAttachment,downloadAttachment,deleteAttachment,fetchCloudTemplates,upsertCloudTemplate,deleteCloudTemplate,fetchPublicShares,createPublicShare,fetchPublicShare,revokePublicShare,createSignedAttachmentUrl,fetchProjectInvites,createProjectInvite,revokeProjectInvite,acceptProjectInvite,fetchProjectCollaborators,removeProjectCollaborator,leaveSharedProject,acquireProjectSection,renewProjectSection,releaseProjectSection,saveCloudProjectSection} from './cloud.mjs';
 import {toCsv,fromCsv,createWorkbook,readWorkbook,mergeRows} from './spreadsheet.mjs';
 import {captureTemplate,previewTemplate,applyTemplate} from './templates.mjs';
 import {renderTurnstile,captchaToken,resetTurnstile} from './turnstile.mjs';
 import {createPresetProject} from './presets.mjs';
 import {renderPaginatedDocument} from './pagination.mjs';
 import {issueTarget} from './issue-navigation.mjs';
+import {lockKeyForView,sectionSnapshot,applySectionSnapshot,sectionChanged} from './collaboration.mjs';
 
 const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
-let workspace=loadWorkspace(),active=null,activeView='project',saveTimer,toastTimer,cloudTimer,session=null,logoObjectUrls=[],templates=[],publicShares=[],projectInvites=[],collaborators=[],lastShareLink='',lastInviteLink='',pendingImport=null,pendingTemplate=null,csvTarget='';
+let workspace=loadWorkspace(),active=null,activeView='project',saveTimer,toastTimer,cloudTimer,cloudPromise=null,lockTimer,lockBusy=false,sectionDirty=false,activeLock=null,undoStack=[],redoStack=[],historyBaseline='',session=null,logoObjectUrls=[],templates=[],publicShares=[],projectInvites=[],collaborators=[],lastShareLink='',lastInviteLink='',pendingImport=null,pendingTemplate=null,csvTarget='';
 const CLOUD_OWNER_KEY='bep-studio-cloud-owner-v1';
+const EDIT_CLIENT_KEY='bep-studio-editor-client-v1';
+let EDIT_CLIENT_ID=sessionStorage.getItem(EDIT_CLIENT_KEY);
+if(!EDIT_CLIENT_ID){EDIT_CLIENT_ID=crypto.randomUUID();sessionStorage.setItem(EDIT_CLIENT_KEY,EDIT_CLIENT_ID);}
 const viewMeta={project:['Project & issue','Cover information, document control and appointment'],templates:['Templates & data','Reusable baselines, client packs and controlled schedule exchange'],organization:['Parties & team','Organizations, roles and responsibility matrix'],information:['Information & platforms','References, BIM uses, exchanges, CDE and software'],technical:['Models & standards','Model register, naming, coordinates and LOIN'],coordination:['Coordination & delivery','Milestones, deliverables, clashes, QA and asset information'],modules:['BEP content','Status and project-specific text for every module'],files:['Files & appendices','Private attachments, appendix register and decisions'],review:['Review & issues','Gaps, conflicts and frozen issues'],sharing:['Sharing & access','Public read-only previews and controlled project collaboration'],appearance:['Branding & print','Logo, document style and visible elements'],preview:['Document preview','Print-ready English version']};
 const viewLists={organization:['parties','team','responsibilities'],information:['references','uses','software','exchanges'],technical:['models','namingFields','loin'],coordination:['milestones','deliverables','clashes','meetings','qaChecks','assetRequirements']};
 function notify(msg){clearTimeout(toastTimer);$('#toast').textContent=msg;$('#toast').hidden=false;toastTimer=setTimeout(()=>$('#toast').hidden=true,4500);}
 function current(){return workspace.projects.find(p=>p.id===workspace.activeProjectId)||null;}
 function setCloudStatus(mode,label){const button=$('#account-button');button.classList.remove('connected','syncing','error');if(mode)button.classList.add(mode);$('#account-label').textContent=label;}
-async function syncProject(project,{quiet=false}={}){
+function replaceActiveProject(project){
+  const index=workspace.projects.findIndex(item=>item.id===project.id);
+  if(index<0)return;workspace.projects[index]=project;if(active?.id===project.id)active=project;saveWorkspace(workspace);
+}
+async function syncProject(project,{quiet=false,sectionKey=activeLock?.key,patch}={}){
   if(!session||!project)return;
   setCloudStatus('syncing','Syncing…');
-  try{await upsertCloudProject(project);setCloudStatus('connected',session.user.email);if(!quiet)$('#save-status').textContent='Saved to cloud';}
-  catch(error){setCloudStatus('error','Sync paused');if(!quiet)notify(error.message);}
+  try{
+    if(Number(project.dbVersion)>0){
+      if(!activeLock?.acquired||activeLock.key!==sectionKey)throw new Error('Editing access is not reserved for this section.');
+      const sentPatch=patch||sectionSnapshot(project,sectionKey);
+      const updated=await saveCloudProjectSection(project,sectionKey,EDIT_CLIENT_ID,sentPatch);
+      if(active?.id===project.id){const livePatch=sectionSnapshot(active,sectionKey);applySectionSnapshot(updated,sectionKey,livePatch);replaceActiveProject(updated);}else replaceActiveProject(updated);
+      if(active?.id===project.id&&JSON.stringify(sectionSnapshot(active,sectionKey))===JSON.stringify(sentPatch))sectionDirty=false;
+    }else{
+      await upsertCloudProject(project);project.dbVersion=1;saveWorkspace(workspace);sectionDirty=false;
+    }
+    setCloudStatus('connected',session.user.email);if(!quiet)$('#save-status').textContent='Saved to cloud';return true;
+  }catch(error){setCloudStatus('error','Sync paused');if(!quiet)notify(error.message);return false;}
 }
-function queueCloudProject(project){if(!session)return;clearTimeout(cloudTimer);cloudTimer=setTimeout(()=>syncProject(project),500);}
+function queueCloudProject(project){
+  if(!session)return;clearTimeout(cloudTimer);const sectionKey=activeLock?.key,patch=sectionKey?sectionSnapshot(project,sectionKey):null;
+  cloudTimer=setTimeout(()=>{
+    const previous=cloudPromise,next=(async()=>{if(previous)await previous;return syncProject(project,{sectionKey,patch});})();
+    cloudPromise=next;next.finally(()=>{if(cloudPromise===next)cloudPromise=null;});
+  },500);
+}
 async function syncWorkspace(){
   if(!session)return;
   setCloudStatus('syncing','Connecting…');
   try{
     const recordedOwner=localStorage.getItem(CLOUD_OWNER_KEY),localProjects=!recordedOwner||recordedOwner===session.user.id?workspace.projects:[],[cloudProjects,cloudTemplates]=await Promise.all([fetchCloudProjects(),fetchCloudTemplates()]),cloudById=new Map(cloudProjects.map(p=>[p.id,p]));templates=cloudTemplates;
     workspace=validateWorkspace({...workspace,projects:mergeProjectSets(localProjects,cloudProjects)});saveWorkspace(workspace);
-    const uploads=localProjects.filter(p=>p.accessRole!=='viewer'&&(!cloudById.has(p.id)||String(p.updatedAt||'')>String(cloudById.get(p.id).updatedAt||'')));
+    const uploads=localProjects.filter(p=>p.accessRole!=='viewer'&&!cloudById.has(p.id));
     await Promise.all(uploads.map(p=>upsertCloudProject(p)));
     localStorage.setItem(CLOUD_OWNER_KEY,session.user.id);active=current();setCloudStatus('connected',session.user.email);renderDashboard();
     notify(uploads.length?'Local projects were merged with your cloud workspace.':'Cloud workspace is up to date.');
   }catch(error){setCloudStatus('error','Sync paused');notify(`Cloud sync paused: ${error.message}`);renderDashboard();}
 }
-function persist(){if(!active||active.accessRole==='viewer')return;active.updatedAt=new Date().toISOString();try{saveWorkspace(workspace);$('#save-status').textContent='Saved locally';queueCloudProject(active);}catch{$('#save-status').textContent='Save failed';notify('Local storage is full. Download a backup before continuing.');}}
-function changed(){if(!active||active.accessRole==='viewer')return;$('#save-status').textContent='Saving…';clearTimeout(saveTimer);saveTimer=setTimeout(()=>{persist();renderReadiness();},250);}
+function updateHistoryButtons(){
+  const enabled=Boolean(activeLock?.acquired)&&active?.accessRole!=='viewer';
+  $('#undo')?.toggleAttribute('disabled',!enabled||!undoStack.length);
+  $('#redo')?.toggleAttribute('disabled',!enabled||!redoStack.length);
+}
+function resetHistory(){
+  undoStack=[];redoStack=[];historyBaseline=activeLock?.acquired&&active?JSON.stringify(sectionSnapshot(active,activeLock.key)):'';
+  updateHistoryButtons();
+}
+function recordHistory(){
+  if(!activeLock?.acquired||!active||!historyBaseline)return;
+  const currentState=JSON.stringify(sectionSnapshot(active,activeLock.key));
+  if(currentState===historyBaseline)return;
+  undoStack.push(historyBaseline);if(undoStack.length>50)undoStack.shift();historyBaseline=currentState;redoStack=[];updateHistoryButtons();
+}
+function acceptCurrentHistoryState(){if(activeLock?.acquired&&active)historyBaseline=JSON.stringify(sectionSnapshot(active,activeLock.key));redoStack=[];updateHistoryButtons();}
+function persist({sync=true}={}){
+  if(!active||active.accessRole==='viewer')return;active.updatedAt=new Date().toISOString();
+  try{saveWorkspace(workspace);$('#save-status').textContent='Saved locally';if(sync)queueCloudProject(active);}catch{$('#save-status').textContent='Save failed';notify('Local storage is full. Download a backup before continuing.');}
+}
+function changed(){
+  if(!active||active.accessRole==='viewer'||!activeLock?.acquired)return;sectionDirty=true;if(redoStack.length){redoStack=[];updateHistoryButtons();}$('#save-status').textContent='Saving…';clearTimeout(saveTimer);saveTimer=setTimeout(()=>{recordHistory();persist();renderReadiness();},250);
+}
 function statusText(p){const r=reviewProject(p);return r.ready?'Ready for issue review':`${r.critical} critical gap${r.critical===1?'':'s'}`;}
 
 function renderDashboard(){
@@ -70,15 +115,99 @@ function renderAppearance(root){
 const dateLabel=value=>value?new Date(value).toLocaleString('en-GB',{dateStyle:'medium',timeStyle:'short'}):'—';
 const accessOwner=()=>!active.accessRole||active.accessRole==='owner';
 const shareState=item=>item.revoked_at?'Revoked':new Date(item.expires_at)<=new Date()?'Expired':'Active';
+function hydrateProjectFromLock(result){
+  if(!result?.project||!active)return;
+  const accessRole=active.accessRole,ownerId=active.ownerId;
+  const candidate={...result.project,updatedAt:result.updatedAt||result.project.updatedAt,dbVersion:Number(result.version)||active.dbVersion||1,accessRole,ownerId};
+  const validated=validateWorkspace({schemaVersion:2,activeProjectId:candidate.id,projects:[candidate]}).projects[0];
+  replaceActiveProject(validated);
+}
+async function flushCurrentSection(){
+  if(!activeLock?.acquired||!active)return true;
+  if(saveTimer){clearTimeout(saveTimer);saveTimer=null;recordHistory();persist({sync:false});}
+  clearTimeout(cloudTimer);cloudTimer=null;
+  if(cloudPromise)await cloudPromise;
+  if(!sectionDirty)return true;
+  return await syncProject(active,{sectionKey:activeLock.key,patch:sectionSnapshot(active,activeLock.key)});
+}
+async function releaseEditingLock({force=false}={}){
+  clearInterval(lockTimer);lockTimer=null;
+  if(!activeLock||!active)return;
+  const lock=activeLock;activeLock=null;resetHistory();
+  try{if(lock.acquired||force)await releaseProjectSection(active.id,lock.key,EDIT_CLIENT_ID,{force});}catch{}
+}
+function beginLockMonitor(){
+  clearInterval(lockTimer);
+  lockTimer=setInterval(async()=>{
+    if(lockBusy||!activeLock||!active||document.hidden)return;
+    lockBusy=true;
+    try{
+      if(activeLock.acquired){
+        const result=await renewProjectSection(active.id,activeLock.key,EDIT_CLIENT_ID);
+        if(!result?.acquired){activeLock={...activeLock,acquired:false,holderEmail:'another editor'};resetHistory();renderFormView();notify('Your section reservation expired. Editing has been paused.');}
+        else activeLock.expiresAt=result.expiresAt;
+      }else{
+        const result=await acquireProjectSection(active.id,activeLock.key,EDIT_CLIENT_ID);
+        if(result?.acquired){hydrateProjectFromLock(result);activeLock={key:result.sectionKey,acquired:true,holderEmail:result.holderEmail,expiresAt:result.expiresAt};resetHistory();renderFormView();renderReadiness();notify('The section is now available and reserved to you.');}
+      }
+    }catch{}finally{lockBusy=false;}
+  },30000);
+}
+async function reserveView(view){
+  const key=lockKeyForView(view);
+  if(activeLock?.key===key&&activeLock.acquired)return true;
+  if(activeLock){
+    if(!await flushCurrentSection())return false;
+    await releaseEditingLock();
+  }
+  if(!key||active?.accessRole==='viewer'){resetHistory();return true;}
+  try{
+    const result=await acquireProjectSection(active.id,key,EDIT_CLIENT_ID);hydrateProjectFromLock(result);
+    activeLock={key,acquired:Boolean(result?.acquired),holderEmail:result?.holderEmail||'another editor',expiresAt:result?.expiresAt||''};
+    resetHistory();beginLockMonitor();return true;
+  }catch(error){activeLock={key,acquired:false,holderEmail:'unavailable',expiresAt:''};resetHistory();notify(`Editing reservation unavailable: ${error.message}`);return true;}
+}
+async function retryEditingLock({force=false}={}){
+  if(!activeLock||!active)return;
+  try{
+    if(force)await releaseProjectSection(active.id,activeLock.key,EDIT_CLIENT_ID,{force:true});
+    const result=await acquireProjectSection(active.id,activeLock.key,EDIT_CLIENT_ID);hydrateProjectFromLock(result);
+    activeLock={key:activeLock.key,acquired:Boolean(result?.acquired),holderEmail:result?.holderEmail||'another editor',expiresAt:result?.expiresAt||''};
+    resetHistory();renderFormView();renderReadiness();if(activeLock.acquired)notify('Section reserved. You can edit it now.');
+  }catch(error){notify(error.message);}
+}
+function applyHistory(direction){
+  if(!activeLock?.acquired||!active)return;
+  if(saveTimer){clearTimeout(saveTimer);saveTimer=null;recordHistory();}
+  const source=direction==='undo'?undoStack:redoStack,target=direction==='undo'?redoStack:undoStack;
+  if(!source.length)return;
+  const currentState=JSON.stringify(sectionSnapshot(active,activeLock.key)),nextState=source.pop();target.push(currentState);
+  applySectionSnapshot(active,activeLock.key,JSON.parse(nextState));historyBaseline=nextState;sectionDirty=true;persist();renderFormView();renderReadiness();updateHistoryButtons();
+  notify(direction==='undo'?'Last change undone.':'Change restored.');
+}
 function renderSharing(root){
   if(!accessOwner()){
-    root.innerHTML=`<section class="access-hero"><span class="access-badge ${esc(active.accessRole)}">${esc((active.accessRole||'viewer').toUpperCase())} ACCESS</span><h2>This BEP is shared with you</h2><p>${active.accessRole==='editor'?'You can update the BEP and your changes sync to the same project. This release is not live co-authoring, so coordinate before editing the same project at the same time.':'You can review, preview and print this BEP, but cannot change its content.'}</p><button class="button ghost danger-text" id="leave-project">Leave shared project</button></section>`;
+    root.innerHTML=`<section class="access-hero"><span class="access-badge ${esc(active.accessRole)}">${esc((active.accessRole||'viewer').toUpperCase())} ACCESS</span><h2>This BEP is shared with you</h2><p>${active.accessRole==='editor'?'You can update the BEP. Editable sections are automatically reserved while you work so another editor cannot overwrite the same section.':'You can review, preview and print this BEP, but cannot change its content.'}</p><button class="button ghost danger-text" id="leave-project">Leave shared project</button></section>`;
     return;
   }
   const activeShares=publicShares.filter(item=>shareState(item)==='Active').length;
-  root.innerHTML=`<section class="sharing-grid"><article class="form-card share-builder"><span class="eyebrow">PUBLIC / READ ONLY</span><h2>Share a preview</h2><p>Publish a frozen snapshot of the current BEP. Anyone with the private link can view and print it without signing in.</p><form id="public-share-form"><label class="field"><span>Link title</span><input name="title" maxlength="180" value="${esc(`${active.fields.projectName||'BEP'} preview`)}" required></label><label class="field"><span>Expires after</span><select name="days"><option value="7">7 days</option><option value="30" selected>30 days</option><option value="90">90 days</option></select></label><button class="button primary" type="submit">Create public preview</button></form>${lastShareLink?`<div class="created-link"><strong>Preview link created</strong><input value="${esc(lastShareLink)}" readonly><button class="button secondary" data-copy-link="${esc(lastShareLink)}">Copy link</button><small>This full link is shown once. Store it before leaving this page.</small></div>`:''}</article><article class="form-card share-builder"><span class="eyebrow">COLLABORATION</span><h2>Invite a user</h2><p>Create a one-use invitation link for this BEP. Editor changes sync to the same project, but simultaneous live co-authoring is not enabled in this release.</p><form id="project-invite-form"><label class="field"><span>Permission</span><select name="role"><option value="editor">Editor — can change the BEP</option><option value="viewer">Viewer — read and print only</option></select></label><label class="field"><span>Invitation expires after</span><select name="days"><option value="1">1 day</option><option value="7" selected>7 days</option><option value="30">30 days</option></select></label><button class="button primary" type="submit">Create invitation link</button></form>${lastInviteLink?`<div class="created-link"><strong>Invitation link created</strong><input value="${esc(lastInviteLink)}" readonly><button class="button secondary" data-copy-link="${esc(lastInviteLink)}">Copy link</button><small>The link can be accepted once and should be sent only to the intended person.</small></div>`:''}</article></section><section class="form-card"><div class="card-heading"><div><h2>Public previews</h2><p>Each link is a snapshot. Later BEP edits do not silently change an already shared preview.</p></div><span>${activeShares} active</span></div><div class="access-list">${publicShares.length?publicShares.map(item=>`<article><div><strong>${esc(item.title)}</strong><span>${shareState(item)} · expires ${esc(dateLabel(item.expires_at))}</span></div>${shareState(item)==='Active'?`<button class="button ghost danger-text" data-revoke-share="${item.id}">Revoke</button>`:''}</article>`).join(''):'<p class="empty-cell">No public previews created.</p>'}</div></section><section class="sharing-grid"><article class="form-card"><div class="card-heading"><h2>Project members</h2><span>${collaborators.length} collaborator${collaborators.length===1?'':'s'}</span></div><div class="access-list">${collaborators.length?collaborators.map(item=>`<article><div><strong>${esc(item.collaborator_email||'Signed-in collaborator')}</strong><span>${esc(item.role)} · joined ${esc(dateLabel(item.accepted_at))}</span></div><button class="button ghost danger-text" data-remove-collaborator="${esc(item.user_id)}">Remove</button></article>`).join(''):'<p class="empty-cell">Only you can access this project.</p>'}</div></article><article class="form-card"><div class="card-heading"><h2>Invitation history</h2><span>${projectInvites.length}</span></div><div class="access-list">${projectInvites.length?projectInvites.map(item=>{const state=item.revoked_at?'Revoked':item.accepted_at?'Accepted':new Date(item.expires_at)<=new Date()?'Expired':'Pending';return `<article><div><strong>${esc(item.role.toUpperCase())}</strong><span>${state} · expires ${esc(dateLabel(item.expires_at))}</span></div>${state==='Pending'?`<button class="button ghost danger-text" data-revoke-invite="${item.id}">Revoke</button>`:''}</article>`;}).join(''):'<p class="empty-cell">No invitations created.</p>'}</div></article></section>`;
+  root.innerHTML=`<section class="sharing-grid"><article class="form-card share-builder"><span class="eyebrow">PUBLIC / READ ONLY</span><h2>Share a preview</h2><p>Publish a frozen snapshot of the current BEP. Anyone with the private link can view and print it without signing in.</p><form id="public-share-form"><label class="field"><span>Link title</span><input name="title" maxlength="180" value="${esc(`${active.fields.projectName||'BEP'} preview`)}" required></label><label class="field"><span>Expires after</span><select name="days"><option value="7">7 days</option><option value="30" selected>30 days</option><option value="90">90 days</option></select></label><button class="button primary" type="submit">Create public preview</button></form>${lastShareLink?`<div class="created-link"><strong>Preview link created</strong><input value="${esc(lastShareLink)}" readonly><button class="button secondary" data-copy-link="${esc(lastShareLink)}">Copy link</button><small>This full link is shown once. Store it before leaving this page.</small></div>`:''}</article><article class="form-card share-builder"><span class="eyebrow">COLLABORATION</span><h2>Invite a user</h2><p>Create a one-use invitation link. Editors can work in parallel on different reserved sections; the same section is read-only while another editor holds it.</p><form id="project-invite-form"><label class="field"><span>Permission</span><select name="role"><option value="editor">Editor — can change the BEP</option><option value="viewer">Viewer — read and print only</option></select></label><label class="field"><span>Invitation expires after</span><select name="days"><option value="1">1 day</option><option value="7" selected>7 days</option><option value="30">30 days</option></select></label><button class="button primary" type="submit">Create invitation link</button></form>${lastInviteLink?`<div class="created-link"><strong>Invitation link created</strong><input value="${esc(lastInviteLink)}" readonly><button class="button secondary" data-copy-link="${esc(lastInviteLink)}">Copy link</button><small>The link can be accepted once and should be sent only to the intended person.</small></div>`:''}</article></section><section class="form-card"><div class="card-heading"><div><h2>Public previews</h2><p>Each link is a snapshot. Later BEP edits do not silently change an already shared preview.</p></div><span>${activeShares} active</span></div><div class="access-list">${publicShares.length?publicShares.map(item=>`<article><div><strong>${esc(item.title)}</strong><span>${shareState(item)} · expires ${esc(dateLabel(item.expires_at))}</span></div>${shareState(item)==='Active'?`<button class="button ghost danger-text" data-revoke-share="${item.id}">Revoke</button>`:''}</article>`).join(''):'<p class="empty-cell">No public previews created.</p>'}</div></section><section class="sharing-grid"><article class="form-card"><div class="card-heading"><h2>Project members</h2><span>${collaborators.length} collaborator${collaborators.length===1?'':'s'}</span></div><div class="access-list">${collaborators.length?collaborators.map(item=>`<article><div><strong>${esc(item.collaborator_email||'Signed-in collaborator')}</strong><span>${esc(item.role)} · joined ${esc(dateLabel(item.accepted_at))}</span></div><button class="button ghost danger-text" data-remove-collaborator="${esc(item.user_id)}">Remove</button></article>`).join(''):'<p class="empty-cell">Only you can access this project.</p>'}</div></article><article class="form-card"><div class="card-heading"><h2>Invitation history</h2><span>${projectInvites.length}</span></div><div class="access-list">${projectInvites.length?projectInvites.map(item=>{const state=item.revoked_at?'Revoked':item.accepted_at?'Accepted':new Date(item.expires_at)<=new Date()?'Expired':'Pending';return `<article><div><strong>${esc(item.role.toUpperCase())}</strong><span>${state} · expires ${esc(dateLabel(item.expires_at))}</span></div>${state==='Pending'?`<button class="button ghost danger-text" data-revoke-invite="${item.id}">Revoke</button>`:''}</article>`;}).join(''):'<p class="empty-cell">No invitations created.</p>'}</div></article></section>`;
 }
-function enforceAccess(root){if(active.accessRole!=='viewer'||activeView==='sharing')return;root.insertAdjacentHTML('afterbegin','<div class="readonly-banner"><strong>View-only access</strong><span>Editing controls are disabled for this shared BEP.</span></div>');root.querySelectorAll('input,select,textarea,button').forEach(element=>{if(!element.matches('[data-open-preview],[data-issue-code]'))element.disabled=true;});}
+function enforceAccess(root){
+  if(active.accessRole==='viewer'&&activeView!=='sharing'){
+    root.insertAdjacentHTML('afterbegin','<div class="readonly-banner"><strong>View-only access</strong><span>Editing controls are disabled for this shared BEP.</span></div>');
+    root.querySelectorAll('input,select,textarea,button').forEach(element=>{if(!element.matches('[data-open-preview],[data-issue-code],[data-export-csv],[data-download-file]'))element.disabled=true;});
+    return;
+  }
+  const key=lockKeyForView(activeView);if(!key||!activeLock)return;
+  if(activeLock.acquired){
+    root.insertAdjacentHTML('afterbegin',`<div class="lock-banner mine"><div><strong>Reserved to you</strong><span>Other editors can view this section but cannot change it while you work.</span></div><span class="lock-live">BORROWED</span></div>`);
+  }else{
+    const ownerAction=accessOwner()?'<button class="button ghost danger-text" id="force-section-lock">Force release</button>':'';
+    root.insertAdjacentHTML('afterbegin',`<div class="lock-banner blocked"><div><strong>Editing by ${esc(activeLock.holderEmail||'another editor')}</strong><span>This section is read-only until the reservation is released or expires.</span></div><div><button class="button secondary" id="retry-section-lock">Try again</button>${ownerAction}</div></div>`);
+    root.querySelectorAll('input,select,textarea,button').forEach(element=>{if(!element.matches('#retry-section-lock,#force-section-lock,[data-open-preview],[data-issue-code],[data-export-csv],[data-download-file]'))element.disabled=true;});
+  }
+}
 function renderFormView(){
   if(!active)return;const root=$('#form-view');
   if(activeView==='project')root.innerHTML=fieldsCard('Project information','project')+fieldsCard('Appointment & scope','appointment');
@@ -93,6 +222,9 @@ function renderFormView(){
   else if(activeView==='sharing')renderSharing(root);
   else if(activeView==='appearance')renderAppearance(root);
   bindFormEvents();enforceAccess(root);
+  $('#retry-section-lock')?.addEventListener('click',()=>retryEditingLock());
+  $('#force-section-lock')?.addEventListener('click',async()=>{if(await confirmAction('Force release section','The current editor will lose their reservation and any unsaved changes may be discarded.'))retryEditingLock({force:true});});
+  updateHistoryButtons();
 }
 function renderReview(root){const r=reviewProject(active);root.innerHTML=`<section class="review-hero ${r.ready?'ready':''}"><div><span>${r.ready?'READY FOR ISSUE REVIEW':'WORKING DRAFT'}</span><h2>${r.score}% ready</h2><p>${r.ready?'Critical requirements are complete. Review the content, then freeze the issue.':'Complete the critical items before freezing a formal issue.'}</p></div><button class="button primary" id="create-release" ${r.ready?'':'disabled'}>Freeze issue ${esc(active.fields.revision||'')}</button></section><section class="form-card"><div class="card-heading"><h2>Review results</h2><span>${r.critical} critical · ${r.warnings} warning${r.warnings===1?'':'s'}</span></div><div class="issue-list">${r.issues.length?r.issues.map(i=>`<button type="button" class="issue ${i.severity}" data-issue-code="${esc(i.code)}"><b>${i.severity==='critical'?'Resolve':'Warning'}</b><span>${esc(i.message)}</span><em>Go to issue →</em></button>`).join(''):'<div class="success-state">No recorded gaps.</div>'}</div></section><section class="form-card"><div class="card-heading"><h2>Frozen issues</h2><span>Unaffected by changes to the current draft</span></div><div class="release-list">${active.releases.length?active.releases.slice().reverse().map(r=>`<article><div><strong>${esc(r.revision)}</strong><span>Issue ${r.number} · ${esc(r.issueDate)} · ${r.readiness}% ready</span></div><button class="button ghost" data-restore-release="${r.id}">Restore as draft</button></article>`).join(''):'<p class="empty-cell">No frozen issues yet.</p>'}</div></section>`;}
 async function goToIssue(code){const target=issueTarget(code,active);await showView(target.view);requestAnimationFrame(()=>{const element=$(target.selector),focus=target.focus?$(target.focus):element;if(!element){notify('The related section could not be located.');return;}element.scrollIntoView({behavior:'smooth',block:'center'});element.classList.add('issue-target');setTimeout(()=>element.classList.remove('issue-target'),2200);focus?.focus?.({preventScroll:true});});}
@@ -108,13 +240,13 @@ async function addAttachments(files){
     try{await uploadAttachment(file,path);active.attachments.push({id,path,name:file.name,size:file.size,type:file.type,uploadedAt:new Date().toISOString()});active.lists.appendices.push({title:file.name,reference:'',status:'Attached',location:file.name,attachmentId:id});}
     catch(error){notify(`Upload failed: ${error.message}`);}
   }
-  persist();renderFormView();setCloudStatus('connected',session.user.email);
+  sectionDirty=true;acceptCurrentHistoryState();persist();renderFormView();setCloudStatus('connected',session.user.email);
 }
 async function downloadStoredFile(id){const file=active.attachments.find(item=>item.id===id);if(!file)return;try{const blob=await downloadAttachment(file.path),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=file.name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}catch(error){notify(error.message);}}
-async function removeStoredFile(id){const file=active.attachments.find(item=>item.id===id);if(!file||!await confirmAction('Delete attachment',`${file.name} will be permanently removed from secure storage.`))return;try{await deleteAttachment(file.path);active.attachments=active.attachments.filter(item=>item.id!==id);const appendix=active.lists.appendices.find(row=>row.attachmentId===id);if(appendix){appendix.status='Removed';appendix.location='—';}persist();renderFormView();notify('Attachment deleted.');}catch(error){notify(error.message);}}
+async function removeStoredFile(id){const file=active.attachments.find(item=>item.id===id);if(!file||!await confirmAction('Delete attachment',`${file.name} will be permanently removed from secure storage.`))return;try{await deleteAttachment(file.path);active.attachments=active.attachments.filter(item=>item.id!==id);const appendix=active.lists.appendices.find(row=>row.attachmentId===id);if(appendix){appendix.status='Removed';appendix.location='—';}sectionDirty=true;acceptCurrentHistoryState();persist();renderFormView();notify('Attachment deleted.');}catch(error){notify(error.message);}}
 function ensureLogoSlots(){active.style.logos=active.style.logos||[];while(active.style.logos.length<Number(active.style.logoCount||0))active.style.logos.push({id:`logo-slot-${active.style.logos.length+1}`,path:'',name:'',placement:'both'});}
-async function setLogo(file,index){if(!session){notify('Sign in before uploading a private logo.');openAuth();return;}if(!['image/png','image/jpeg'].includes(file.type)||file.size>5242880){notify('Use a PNG or JPEG logo no larger than 5 MB.');return;}ensureLogoSlots();const slot=active.style.logos[index],old=slot?.path,path=`${session.user.id}/${active.id}/branding/${crypto.randomUUID()}-${safeFileName(file.name)}`;try{setCloudStatus('syncing','Uploading logo…');await uploadAttachment(file,path);active.style.logos[index]={id:slot?.id||crypto.randomUUID(),path,name:file.name,placement:slot?.placement||'both'};active.style.logoPath='';if(old)await deleteAttachment(old).catch(()=>{});persist();renderFormView();setCloudStatus('connected',session.user.email);notify(`Logo ${index+1} updated.`);}catch(error){setCloudStatus('error','Upload failed');notify(error.message);}}
-async function removeLogo(index){ensureLogoSlots();const logo=active.style.logos[index];if(!logo?.path||!await confirmAction('Remove logo',`${logo.name||`Logo ${index+1}`} will be permanently removed from secure storage.`))return;try{await deleteAttachment(logo.path);active.style.logos[index]={...logo,path:'',name:''};persist();renderFormView();notify('Project logo removed.');}catch(error){notify(error.message);}}
+async function setLogo(file,index){if(!session){notify('Sign in before uploading a private logo.');openAuth();return;}if(!['image/png','image/jpeg'].includes(file.type)||file.size>5242880){notify('Use a PNG or JPEG logo no larger than 5 MB.');return;}ensureLogoSlots();const slot=active.style.logos[index],old=slot?.path,path=`${session.user.id}/${active.id}/branding/${crypto.randomUUID()}-${safeFileName(file.name)}`;try{setCloudStatus('syncing','Uploading logo…');await uploadAttachment(file,path);active.style.logos[index]={id:slot?.id||crypto.randomUUID(),path,name:file.name,placement:slot?.placement||'both'};active.style.logoPath='';if(old)await deleteAttachment(old).catch(()=>{});sectionDirty=true;acceptCurrentHistoryState();persist();renderFormView();setCloudStatus('connected',session.user.email);notify(`Logo ${index+1} updated.`);}catch(error){setCloudStatus('error','Upload failed');notify(error.message);}}
+async function removeLogo(index){ensureLogoSlots();const logo=active.style.logos[index];if(!logo?.path||!await confirmAction('Remove logo',`${logo.name||`Logo ${index+1}`} will be permanently removed from secure storage.`))return;try{await deleteAttachment(logo.path);active.style.logos[index]={...logo,path:'',name:''};sectionDirty=true;acceptCurrentHistoryState();persist();renderFormView();notify('Project logo removed.');}catch(error){notify(error.message);}}
 async function deleteProjectStorage(project){const paths=[...(project.attachments||[]).map(file=>file.path),...(project.style.logos||[]).map(logo=>logo.path),project.style.logoPath].filter(Boolean);await Promise.all([...new Set(paths)].map(path=>deleteAttachment(path).catch(()=>null)));}
 function bindFormEvents(){
   $$('[data-field]').forEach(el=>el.addEventListener('input',()=>{active.fields[el.dataset.field]=el.value;changed();}));
@@ -147,9 +279,9 @@ function bindFormEvents(){
   $('#new-template')?.addEventListener('click',()=>{$('#template-form').reset();$('#template-form [name="version"]').value='1.0';$('#template-dialog').showModal();});
   $$('[data-apply-template]').forEach(btn=>btn.addEventListener('click',()=>applySelectedTemplate(btn.dataset.applyTemplate)));
   $$('[data-delete-template]').forEach(btn=>btn.addEventListener('click',async()=>{const template=templates.find(t=>t.id===btn.dataset.deleteTemplate);if(template&&await confirmAction('Delete template',`${template.name} will be permanently deleted from your private template library.`)){try{await deleteCloudTemplate(template.id);templates=templates.filter(t=>t.id!==template.id);renderFormView();notify('Template deleted.');}catch(error){notify(error.message);}}}));
-  $('#clear-conflicts')?.addEventListener('click',()=>{active.templateConflicts=[];persist();renderFormView();renderReadiness();notify('Template conflicts marked as reviewed.');});
-  $('#create-release')?.addEventListener('click',()=>{const n=createRelease(active);persist();renderFormView();notify(`Issue ${n} was frozen.`);});
-  $$('[data-restore-release]').forEach(btn=>btn.addEventListener('click',async()=>{if(await confirmAction('Restore issue','The current draft will be replaced with this issue snapshot.')){restoreRelease(active,btn.dataset.restoreRelease);persist();renderFormView();renderReadiness();notify('The issue was restored as an editable draft.');}}));
+  $('#clear-conflicts')?.addEventListener('click',()=>{active.templateConflicts=[];sectionDirty=true;recordHistory();persist();renderFormView();renderReadiness();notify('Template conflicts marked as reviewed.');});
+  $('#create-release')?.addEventListener('click',()=>{const n=createRelease(active);sectionDirty=true;recordHistory();persist();renderFormView();notify(`Issue ${n} was frozen.`);});
+  $$('[data-restore-release]').forEach(btn=>btn.addEventListener('click',async()=>{if(await confirmAction('Restore issue','The current draft will be replaced with this issue snapshot.')){restoreRelease(active,btn.dataset.restoreRelease);sectionDirty=true;recordHistory();persist();renderFormView();renderReadiness();notify('The issue was restored as an editable draft.');}}));
 }
 function releaseLogoUrls(){for(const item of logoObjectUrls)if(item?.url)URL.revokeObjectURL(item.url);logoObjectUrls=[];}
 async function loadLogoUrls(){releaseLogoUrls();ensureLogoSlots();if(!session)return [];const configured=active.style.logos.slice(0,Number(active.style.logoCount||0));logoObjectUrls=await Promise.all(configured.map(async logo=>{if(!logo.path)return {...logo,url:''};try{return {...logo,url:URL.createObjectURL(await downloadAttachment(logo.path))};}catch(error){notify(`Logo preview unavailable: ${error.message}`);return {...logo,url:''};}}));return logoObjectUrls;}
@@ -171,16 +303,18 @@ async function revokeInvite(id){if(!await confirmAction('Revoke invitation','Thi
 async function removeCollaborator(userId){const member=collaborators.find(row=>row.user_id===userId);if(!member||!await confirmAction('Remove collaborator',`${member.collaborator_email||'This user'} will lose access to the BEP.`))return;try{await removeProjectCollaborator(active.id,userId);await refreshSharingData();renderFormView();notify('Collaborator removed.');}catch(error){notify(error.message);}}
 async function leaveProject(){if(!await confirmAction('Leave shared project','This BEP will be removed from your workspace. The owner keeps the project.'))return;try{await leaveSharedProject(active.id);workspace.projects=workspace.projects.filter(project=>project.id!==active.id);saveWorkspace(workspace);renderDashboard();notify('You left the shared project.');}catch(error){notify(error.message);}}
 async function showView(view){
+  if(!await reserveView(view))return;
   activeView=view;$$('#editor-nav button').forEach(b=>b.classList.toggle('active',b.dataset.view===view));const [title,desc]=viewMeta[view];$('#view-heading').innerHTML=`<span class="eyebrow">BEP WORKSPACE</span><h1>${title}</h1><p>${desc}</p>`;const preview=view==='preview';$('.workarea').hidden=preview;$('#document-pane').classList.toggle('show',preview);
   if(preview){const projectId=active.id,r=reviewProject(active);document.documentElement.style.setProperty('--accent',active.style.accent);document.documentElement.style.setProperty('--doc-font',active.style.font==='serif'?'Georgia,serif':'Arial,sans-serif');const logos=await loadLogoUrls();if(active?.id===projectId&&activeView==='preview')await renderPaginatedDocument($('#document'),buildDocument(active,r,logos),active,logos);}
   else{releaseLogoUrls();if(view==='sharing'){const root=$('#form-view');root.innerHTML='<section class="form-card"><p class="empty-cell">Loading sharing settings…</p></section>';try{await refreshSharingData();}catch(error){notify(error.message);}renderFormView();}else renderFormView();}renderReadiness();
 }
 function confirmAction(title,message){return new Promise(resolve=>{const d=$('#confirm-dialog');$('#confirm-title').textContent=title;$('#confirm-message').textContent=message;d.addEventListener('close',()=>resolve(d.returnValue==='confirm'),{once:true});d.showModal();});}
+async function returnToDashboard(){if(activeLock&&!await flushCurrentSection())return;await releaseEditingLock();renderDashboard();}
 
 $('#new-project').addEventListener('click',()=>{$('#new-project-form').reset();$('#project-dialog').showModal();});
-$('#new-project-form').addEventListener('submit',event=>{event.preventDefault();const submitter=event.submitter;if(submitter?.value!=='create'){$('#project-dialog').close('cancel');return;}const data=new FormData(event.currentTarget),seed={projectName:String(data.get('name')).trim(),projectCode:String(data.get('code')).trim()},contractor=String(data.get('contractor')).trim();if(contractor)seed.contractor=contractor;const p=createPresetProject(String(data.get('startingPoint')||'default'),seed);workspace.projects.push(p);saveWorkspace(workspace);syncProject(p,{quiet:true});$('#project-dialog').close('create');openProject(p.id);});
+$('#new-project-form').addEventListener('submit',async event=>{event.preventDefault();const submitter=event.submitter;if(submitter?.value!=='create'){$('#project-dialog').close('cancel');return;}const data=new FormData(event.currentTarget),seed={projectName:String(data.get('name')).trim(),projectCode:String(data.get('code')).trim()},contractor=String(data.get('contractor')).trim();if(contractor)seed.contractor=contractor;const p=createPresetProject(String(data.get('startingPoint')||'default'),seed);workspace.projects.push(p);saveWorkspace(workspace);if(session&&!await syncProject(p,{quiet:true})){workspace.projects=workspace.projects.filter(item=>item.id!==p.id);saveWorkspace(workspace);notify('The project could not be created in the cloud.');return;}$('#project-dialog').close('create');openProject(p.id);});
 $('#project-list').addEventListener('click',async event=>{const btn=event.target.closest('button[data-action]');if(!btn)return;const card=btn.closest('[data-id]'),p=workspace.projects.find(x=>x.id===card.dataset.id);if(btn.dataset.action==='open')openProject(p.id);if(btn.dataset.action==='duplicate'){const copy=cloneProject(p);workspace.projects.push(copy);saveWorkspace(workspace);syncProject(copy,{quiet:true});renderDashboard();notify('An independent project copy was created.');}if(btn.dataset.action==='archive'){p.archived=!p.archived;p.updatedAt=new Date().toISOString();saveWorkspace(workspace);syncProject(p,{quiet:true});renderDashboard();}if(btn.dataset.action==='delete'){const shared=p.accessRole&&p.accessRole!=='owner',confirmed=await confirmAction(shared?'Leave shared project':'Delete project',shared?'This BEP will be removed from your workspace. The owner keeps the project.':`${p.fields.projectName} and its frozen issues will be removed permanently from this device and your cloud workspace.`);if(!confirmed)return;workspace.projects=workspace.projects.filter(x=>x.id!==p.id);saveWorkspace(workspace);if(session)try{if(shared)await leaveSharedProject(p.id);else{await deleteProjectStorage(p);await deleteCloudProject(p.id);}}catch(error){notify(`${shared?'Left':'Deleted'} locally, but the cloud update failed: ${error.message}`);}renderDashboard();}});
-$('#project-search').addEventListener('input',renderDashboard);$('#back-dashboard').addEventListener('click',renderDashboard);$('#go-home').addEventListener('click',renderDashboard);
+$('#project-search').addEventListener('input',renderDashboard);$('#back-dashboard').addEventListener('click',returnToDashboard);$('#go-home').addEventListener('click',returnToDashboard);
 $$('#editor-nav button').forEach(btn=>btn.addEventListener('click',()=>showView(btn.dataset.view)));$('#close-preview').addEventListener('click',()=>showView('review'));
 $('#print').addEventListener('click',async()=>{if(!active)return;const r=reviewProject(active);await showView('preview');if(!r.ready&&!confirm('The document has critical gaps and will be marked as an incomplete draft. Continue to print?'))return;setTimeout(()=>window.print(),50);});
 $('#backup-all').addEventListener('click',()=>{const blob=new Blob([JSON.stringify({...workspace,exportedAt:new Date().toISOString()},null,2)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`bep-studio-backup-${new Date().toISOString().slice(0,10)}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);notify('Backup is ready.');});
@@ -189,8 +323,8 @@ $$('[data-close-dialog]').forEach(button=>button.addEventListener('click',()=>bu
 $('#template-form').addEventListener('submit',async event=>{event.preventDefault();const form=event.currentTarget,data=new FormData(form),type=String(data.get('type')),sourceReference=String(data.get('sourceReference')).trim();if(type==='client'&&!sourceReference){notify('A source reference is required for client requirement packs.');return;}const template=captureTemplate(active,type,{name:String(data.get('name')).trim(),description:String(data.get('description')).trim(),sourceReference,version:String(data.get('version')).trim()||'1.0'});try{await upsertCloudTemplate(template);templates.unshift(template);$('#template-dialog').close();renderFormView();notify('Template saved to your private library.');}catch(error){notify(error.message);}});
 $('#workbook-import').addEventListener('change',async event=>{const file=event.target.files[0];if(!file)return;try{if(file.size>15_000_000)throw new Error('The Excel workbook is larger than 15 MB.');const result=await readWorkbook(file);startImport(result.tables,result.warnings);}catch(error){notify(error.message);}finally{event.target.value='';}});
 $('#csv-import').addEventListener('change',async event=>{const file=event.target.files[0];if(!file||!csvTarget)return;try{if(file.size>2_000_000)throw new Error('The CSV file is larger than 2 MB.');startImport({[csvTarget]:fromCsv(await file.text(),listSchemas[csvTarget])});}catch(error){notify(error.message);}finally{event.target.value='';csvTarget='';}});
-$('#import-form').addEventListener('submit',event=>{event.preventDefault();if(!pendingImport)return;const mode=String(new FormData(event.currentTarget).get('mode'));for(const [key,rows] of Object.entries(pendingImport.tables))active.lists[key]=mode==='replace'?structuredClone(rows):mergeRows(active.lists[key]||[],rows,listSchemas[key]);pendingImport=null;$('#import-dialog').close();persist();renderFormView();renderReadiness();notify(`Schedule data ${mode==='replace'?'replaced':'merged'} successfully.`);});
-$('#template-apply-form').addEventListener('submit',event=>{event.preventDefault();if(!pendingTemplate)return;const template=pendingTemplate,mode=String(new FormData(event.currentTarget).get('mode'));applyTemplate(active,template,mode);pendingTemplate=null;$('#template-apply-dialog').close();persist();renderFormView();renderReadiness();notify(`${template.name} applied in ${mode==='overwrite'?'overwrite':'merge'} mode.`);});
+$('#import-form').addEventListener('submit',event=>{event.preventDefault();if(!pendingImport)return;const mode=String(new FormData(event.currentTarget).get('mode'));for(const [key,rows] of Object.entries(pendingImport.tables))active.lists[key]=mode==='replace'?structuredClone(rows):mergeRows(active.lists[key]||[],rows,listSchemas[key]);pendingImport=null;$('#import-dialog').close();sectionDirty=true;recordHistory();persist();renderFormView();renderReadiness();notify(`Schedule data ${mode==='replace'?'replaced':'merged'} successfully.`);});
+$('#template-apply-form').addEventListener('submit',event=>{event.preventDefault();if(!pendingTemplate)return;const template=pendingTemplate,mode=String(new FormData(event.currentTarget).get('mode'));applyTemplate(active,template,mode);pendingTemplate=null;$('#template-apply-dialog').close();sectionDirty=true;recordHistory();persist();renderFormView();renderReadiness();notify(`${template.name} applied in ${mode==='overwrite'?'overwrite':'merge'} mode.`);});
 window.addEventListener('storage',()=>{workspace=loadWorkspace();if(!active)renderDashboard();});
 
 function showAuthMessage(message,success=false){const el=$('#auth-message');el.textContent=message;el.classList.toggle('success',success);el.hidden=false;}
@@ -218,8 +352,16 @@ async function finishSignedIn(){
 $('#account-button').addEventListener('click',async()=>{
   if(!session){openAuth();return;}
   if(await confirmAction('Sign out','You will need to sign in again to access the project workspace.')){
-    await signOut();session=null;setCloudStatus('','Sign in');showAuthView('signin',{message:'You have signed out successfully.',success:true});
+    if(activeLock&&!await flushCurrentSection())return;await releaseEditingLock();await signOut();session=null;setCloudStatus('','Sign in');showAuthView('signin',{message:'You have signed out successfully.',success:true});
   }
+});
+$('#undo').addEventListener('click',()=>applyHistory('undo'));
+$('#redo').addEventListener('click',()=>applyHistory('redo'));
+document.addEventListener('keydown',event=>{
+  if(!(event.ctrlKey||event.metaKey)||event.altKey)return;
+  const key=event.key.toLowerCase();
+  if(key==='z'){event.preventDefault();applyHistory(event.shiftKey?'redo':'undo');}
+  else if(key==='y'){event.preventDefault();applyHistory('redo');}
 });
 $$('[data-auth-view]').forEach(button=>button.addEventListener('click',()=>showAuthView(button.dataset.authView)));
 $$('[data-toggle-password]').forEach(button=>button.addEventListener('click',()=>{const input=button.parentElement.querySelector('input'),show=input.type==='password';input.type=show?'text':'password';button.textContent=show?'Hide':'Show';button.setAttribute('aria-label',`${show?'Hide':'Show'} password`);}));
@@ -258,7 +400,8 @@ $('#reset-form').addEventListener('submit',async event=>{
   catch(error){showAuthMessage(error.message);}
   finally{setAuthBusy(form,false);}
 });
-window.addEventListener('online',()=>{if(session)syncWorkspace();});
+window.addEventListener('online',()=>{if(!session)return;if(activeLock?.acquired)flushCurrentSection();else if(activeLock&&active)retryEditingLock();else if(!active)syncWorkspace();});
+window.addEventListener('offline',()=>{if(!activeLock?.acquired)return;activeLock={...activeLock,acquired:false,holderEmail:'connection unavailable'};resetHistory();renderFormView();notify('You are offline. Editing is paused until the section can be reserved again.');});
 
 async function showPublicPreview(token){
   document.body.classList.remove('auth-locked');document.body.classList.add('public-preview');$('#auth-screen').hidden=true;$('.topbar').hidden=true;$('#dashboard').hidden=true;$('#editor').hidden=false;$('.sidebar').hidden=true;$('.workarea').hidden=true;$('#document-pane').classList.add('show');
