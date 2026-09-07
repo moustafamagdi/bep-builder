@@ -1,3 +1,4 @@
+import {seedGovernance} from './governance.mjs';
 // Company procedures are proposed HATCO defaults, not assertions of client approval.
 export function applyHatco(p,humain=false,seed={}) {
   p.preset=humain?'humain':'hatco';
@@ -12,7 +13,7 @@ export function applyHatco(p,humain=false,seed={}) {
     coordinationScope:'HATCO coordinates its appointed works and assigned interfaces. External federation leadership, review authority and responsibility limits shall be confirmed in the project appointment.',
     exclusions:'No transfer of design liability through clash review. Fabrication, 4D, cost modelling, COBie, asset tagging and surveys are conditional uses, enabled only when the project scope requires them.',
     originatorCode:'HAT',namingPattern:'PROJECT-ORIGINATOR-VOLUME-LEVEL-TYPE-ROLE-NUMBER',drawingStrategy:'Discipline models',
-    units:'Length: mm; elevation: m; area: m²; volume: m³',loinSystem:'Purpose / milestone / element matrix: geometry, data and documents',
+    units:'Millimetres',loinSystem:'Purpose / milestone / element matrix: geometry, data and documents',
     classification:'HATCO discipline and system codes internally; external classification scheme is project-specific',modelSizeLimit:'250 MB review trigger; split after performance assessment and BIM Manager agreement',
     authoringProcedure:'Use controlled HATCO templates and shared parameters; approved coordinate source; pinned links; discipline worksets; controlled documentation and export views; weekly model health review; checked exchanges.',
     coordinationCycle:'Weekly: exchange before federation; review and meeting; verified issue closure',issuePlatform:'Controlled issue register in the approved project platform',
@@ -87,5 +88,5 @@ export function applyHatco(p,humain=false,seed={}) {
   ].map(([subject,decision,owner],i)=>({reference:`HAT-DEC-${String(i+1).padStart(3,'0')}`,subject,decision,owner,dueDate:'',status:'Open'}));
   p.lists.appendices=[['Client EIR / project information standard','PROJECT-EIR'],['Authorized survey / URS and coordinate audit','PROJECT-URS'],['Approved detailed TIDP / MIDP','PROJECT-MIDP']].map(([title,reference])=>({title,reference,status:'Not received',location:''}));
   for(const id of ['fourD','fiveD','existing','fabrication','visualization','assets','cobie','tagging'])p.moduleStates[id]='pending';
-  return p;
+  return seedGovernance(p);
 }

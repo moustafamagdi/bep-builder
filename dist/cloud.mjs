@@ -197,7 +197,7 @@ export async function fetchPublicShares(projectId){
 export async function createPublicShare(project,title,expiresDays=30,publicLogos=[]){
   const session=await activeSession();if(project.accessRole&&project.accessRole!=='owner')throw new Error('Only the project owner can publish a public preview.');
   const token=tokenBytes(),id=crypto.randomUUID(),expiresAt=new Date(Date.now()+Number(expiresDays)*86400000).toISOString(),stored=structuredClone(project);
-  stored.attachments=[];stored.releases=(stored.releases||[]).map(({id,number,revision,issueDate,createdAt,readiness})=>({id,number,revision,issueDate,createdAt,readiness}));stored.style.logos=(stored.style.logos||[]).map(logo=>({...logo,path:''}));delete stored.ownerId;delete stored.accessRole;delete stored.dbVersion;
+  stored.lists.approvals=(stored.lists.approvals||[]).map(({contentSnapshot,...row})=>row);stored.attachments=[];stored.releases=(stored.releases||[]).map(({id,number,revision,issueDate,createdAt,readiness})=>({id,number,revision,issueDate,createdAt,readiness}));stored.style.logos=(stored.style.logos||[]).map(logo=>({...logo,path:''}));delete stored.ownerId;delete stored.accessRole;delete stored.dbVersion;
   await api('/rest/v1/bep_public_shares',{method:'POST',token:session.access_token,headers:{Prefer:'return=minimal'},body:{id,project_id:project.id,owner_id:session.user.id,token_hash:await tokenHash(token),title:title||`${project.fields.projectName} preview`,project_data:stored,public_logos:publicLogos,expires_at:expiresAt}});
   return {id,token,url:shareUrl(token),expiresAt};
 }

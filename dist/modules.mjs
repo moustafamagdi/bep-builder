@@ -1,3 +1,4 @@
+import {governanceSchemas,deliveryColumns} from './governance.mjs';
 export const moduleGroups = [
   {id:'foundation',label:'Foundation & document control'},
   {id:'management',label:'Information management'},
@@ -47,6 +48,7 @@ export const statuses = [
 ];
 
 export const listSchemas = {
+  ...governanceSchemas,
   parties:{label:'Parties',columns:[['name','Organization'],['role','Role'],['code','Code'],['responsibility','Responsibility']]},
   team:{label:'Project team',columns:[['name','Name'],['organization','Organization'],['role','Role'],['email','Email']]},
   responsibilities:{label:'Responsibility matrix',columns:[['activity','Activity / deliverable'],['responsible','Responsible'],['accountable','Accountable'],['consulted','Consulted'],['informed','Informed']]},
@@ -58,7 +60,7 @@ export const listSchemas = {
   namingFields:{label:'Naming convention fields',columns:[['order','Order','number'],['field','Field'],['codeList','Permitted values / code list'],['example','Example']]},
   loin:{label:'Level of information need matrix',columns:[['element','Element / system'],['milestone','Milestone'],['geometry','Geometrical information'],['information','Alphanumeric information'],['documentation','Documentation'],['responsible','Responsible party']]},
   milestones:{label:'Milestones',columns:[['name','Milestone'],['gate','Stage gate'],['date','Date','date'],['output','Outputs']]},
-  deliverables:{label:'Deliverables',columns:[['title','Deliverable'],['producer','Producer'],['date','Date','date'],['format','Format'],['acceptance','Acceptance']]},
+  deliverables:{label:'TIDP / MIDP delivery plan',columns:deliveryColumns},
   clashes:{label:'Clash tests',columns:[['name','Test'],['setA','Set A'],['setB','Set B'],['type','Type','select',['Hard','Clearance','Duplicate','Workflow']],['tolerance','Tolerance / clearance'],['owner','Owner']]},
   meetings:{label:'Meetings',columns:[['name','Type'],['frequency','Frequency'],['participants','Participants'],['output','Output']]},
   qaChecks:{label:'Model QA/QC schedule',columns:[['check','Check'],['frequency','Frequency'],['checker','Checker'],['acceptance','Acceptance criterion'],['evidence','Evidence / record']]},
@@ -87,7 +89,7 @@ export const fieldGroups = {
 };
 
 export const defaultLists = () => ({
-  parties:[],team:[],responsibilities:[{activity:'BEP management',responsible:'BIM Manager',accountable:'Project Manager',consulted:'Discipline BIM Leads',informed:'Project team'},{activity:'Discipline model production',responsible:'Task team',accountable:'Discipline lead',consulted:'BIM coordination team',informed:'Main contractor'}],references:[],
+  ...Object.fromEntries(Object.keys(governanceSchemas).map(k=>[k,[]])),parties:[],team:[],responsibilities:[{activity:'BEP management',responsible:'BIM Manager',accountable:'Project Manager',consulted:'Discipline BIM Leads',informed:'Project team'},{activity:'Discipline model production',responsible:'Task team',accountable:'Discipline lead',consulted:'BIM coordination team',informed:'Main contractor'}],references:[],
   uses:[{name:'Construction coordination',status:'Required',owner:'Main contractor',output:'Coordinated model and issue register'},{name:'Information delivery planning',status:'Required',owner:'Main contractor',output:'MIDP / TIDPs'}],
   software:[],exchanges:[],models:[],namingFields:[{order:'1',field:'Project',codeList:'Approved project code',example:'PRJ'},{order:'2',field:'Originator',codeList:'Approved organization code',example:'ORG'},{order:'3',field:'Volume / system',codeList:'Project breakdown code',example:'ZZ'}],loin:[],milestones:[],deliverables:[],clashes:[],
   meetings:[{name:'BIM coordination meeting',frequency:'Weekly',participants:'Relevant task teams',output:'Minutes and updated issue register'}],qaChecks:[{check:'Coordinates, levels and units',frequency:'Before every exchange',checker:'Discipline BIM Lead',acceptance:'Matches approved project reference',evidence:'Model QA checklist'},{check:'Naming and document metadata',frequency:'Before every exchange',checker:'Information Manager',acceptance:'Complies with approved convention',evidence:'Submission check record'}],assetRequirements:[],decisions:[],appendices:[]

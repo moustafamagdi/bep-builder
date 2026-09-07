@@ -58,3 +58,11 @@ node --check dist/pagination.mjs
 node --check dist/issue-navigation.mjs
 node --check dist/collaboration.mjs
 ```
+
+## Governance and delivery registers
+
+EIR compliance is under Information; detailed responsibilities and mobilization under Parties & team; expanded TIDP/MIDP and risks under Coordination; change history and recorded approvals under Review. All registers support CSV and workbook exchange and appear in the BEP. New HATCO presets include starter rows with unconfirmed project inputs clearly unresolved. Existing projects gain empty registers without overwriting existing information.
+
+Readiness separates data completeness from evidence of technical review and issue authorization. Approval records are references to externally obtained decisions, not electronic signatures or an approval-request service. Binding records the exact reviewed content; changing content invalidates the binding. CSV/XLSX imports cannot carry this binding and need review and re-binding. Public previews omit private approval snapshots.
+
+The server section-save allowlists in `supabase/schema.sql` include the new registers. Approval and change records are managed under the existing whole-project Review reservation.

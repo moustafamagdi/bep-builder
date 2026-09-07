@@ -8,10 +8,10 @@ const sectionFields={
   coordination:fieldsFor(['coordination'])
 };
 const sectionLists={
-  organization:['parties','team','responsibilities'],
-  information:['references','uses','software','exchanges'],
+  organization:['parties','team','responsibilities','detailedResponsibilities','mobilization'],
+  information:['references','uses','software','exchanges','compliance'],
   technical:['models','namingFields','loin'],
-  coordination:['milestones','deliverables','clashes','meetings','qaChecks','assetRequirements'],
+  coordination:['milestones','deliverables','clashes','meetings','qaChecks','assetRequirements','risks'],
   files:['appendices','decisions']
 };
 const viewLocks={project:'project',templates:'__project__',organization:'organization',information:'information',technical:'technical',coordination:'coordination',modules:'modules',files:'files',review:'__project__',appearance:'appearance'};
