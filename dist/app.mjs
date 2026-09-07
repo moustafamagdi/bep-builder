@@ -87,6 +87,7 @@ function changed(){
 function statusText(p){const r=reviewProject(p);return r.ready?'Ready for issue review':`${r.critical} critical gap${r.critical===1?'':'s'}`;}
 
 function renderDashboard(){
+  clearInterval(lockTimer);lockTimer=null;activeLock=null;$('#view-heading').innerHTML='';$('#form-view').innerHTML='';$('#document-pane').classList.remove('show');
   active=null;workspace.activeProjectId=null;saveWorkspace(workspace);$('#editor').hidden=true;$('#dashboard').hidden=false;$('#current-project-name').textContent='Projects';$$('.editor-only').forEach(x=>x.hidden=true);
   const live=workspace.projects.filter(p=>!p.archived),archived=workspace.projects.filter(p=>p.archived),ready=live.filter(p=>reviewProject(p).ready).length;
   $('#portfolio-summary').innerHTML=`<article><span>Active projects</span><strong>${live.length}</strong></article><article><span>Ready for review</span><strong>${ready}</strong></article><article><span>Frozen issues</span><strong>${workspace.projects.reduce((n,p)=>n+p.releases.length,0)}</strong></article><article><span>Archived</span><strong>${archived.length}</strong></article>`;
@@ -157,18 +158,20 @@ function beginLockMonitor(){
   },30000);
 }
 async function reserveView(view){
+  const projectId=active?.id;if(!projectId)return false;
   const key=lockKeyForView(view);
   if(activeLock?.key===key&&activeLock.acquired)return true;
   if(activeLock){
     if(!await flushCurrentSection())return false;
     await releaseEditingLock();
   }
+  if(active?.id!==projectId)return false;
   if(!key||active?.accessRole==='viewer'){resetHistory();return true;}
   try{
-    const result=await acquireProjectSection(active.id,key,EDIT_CLIENT_ID);hydrateProjectFromLock(result);
+    const result=await acquireProjectSection(projectId,key,EDIT_CLIENT_ID);if(active?.id!==projectId){if(result?.acquired)await releaseProjectSection(projectId,key,EDIT_CLIENT_ID).catch(()=>{});return false;}hydrateProjectFromLock(result);
     activeLock={key,acquired:Boolean(result?.acquired),holderEmail:result?.holderEmail||'another editor',expiresAt:result?.expiresAt||''};
     resetHistory();beginLockMonitor();return true;
-  }catch(error){activeLock={key,acquired:false,holderEmail:'unavailable',expiresAt:''};resetHistory();notify(`Editing reservation unavailable: ${error.message}`);return true;}
+  }catch(error){if(active?.id!==projectId)return false;activeLock={key,acquired:false,holderEmail:'unavailable',expiresAt:''};resetHistory();notify(`Editing reservation unavailable: ${error.message}`);return true;}
 }
 async function retryEditingLock({force=false}={}){
   if(!activeLock||!active)return;
@@ -307,7 +310,8 @@ async function revokeInvite(id){if(!await confirmAction('Revoke invitation','Thi
 async function removeCollaborator(userId){const member=collaborators.find(row=>row.user_id===userId);if(!member||!await confirmAction('Remove collaborator',`${member.collaborator_email||'This user'} will lose access to the BEP.`))return;try{await removeProjectCollaborator(active.id,userId);await refreshSharingData();renderFormView();notify('Collaborator removed.');}catch(error){notify(error.message);}}
 async function leaveProject(){if(!await confirmAction('Leave shared project','This BEP will be removed from your workspace. The owner keeps the project.'))return;try{await leaveSharedProject(active.id);workspace.projects=workspace.projects.filter(project=>project.id!==active.id);saveWorkspace(workspace);renderDashboard();notify('You left the shared project.');}catch(error){notify(error.message);}}
 async function showView(view){
-  if(!await reserveView(view))return;
+  const projectId=active?.id;if(!projectId||!viewMeta[view])return;
+  if(!await reserveView(view)||active?.id!==projectId)return;
   activeView=view;$$('#editor-nav button').forEach(b=>b.classList.toggle('active',b.dataset.view===view));const [title,desc]=viewMeta[view];$('#view-heading').innerHTML=`<span class="eyebrow">BEP WORKSPACE</span><h1>${title}</h1><p>${desc}</p>`;const preview=view==='preview';$('.workarea').hidden=preview;$('#document-pane').classList.toggle('show',preview);
   if(preview){const projectId=active.id,r=reviewProject(active);document.documentElement.style.setProperty('--accent',active.style.accent);document.documentElement.style.setProperty('--doc-font',active.style.font==='serif'?'Georgia,serif':'Arial,sans-serif');const logos=await loadLogoUrls();if(active?.id===projectId&&activeView==='preview')await renderPaginatedDocument($('#document'),buildDocument(active,r,logos),active,logos);}
   else{releaseLogoUrls();if(view==='sharing'){const root=$('#form-view');root.innerHTML='<section class="form-card"><p class="empty-cell">Loading sharing settings…</p></section>';try{await refreshSharingData();}catch(error){notify(error.message);}renderFormView();}else renderFormView();}renderReadiness();

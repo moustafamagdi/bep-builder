@@ -86,3 +86,6 @@ dialog select,dialog textarea{display:block;width:100%;border:1px solid var(--li
 @media print{.public-preview .document-toolbar{display:none!important}.doc-page.cover-page{background:linear-gradient(145deg,var(--accent) 0 58%,#0e2635 58%)!important}}
 
 .schedule-record{border-top:1px solid #d5dfe5;padding:16px 0}.schedule-record summary{font-size:16px;font-weight:700;cursor:pointer;margin-bottom:16px}.schedule-record input,.schedule-record select{width:100%;min-width:0}.issue.approval{border-left:4px solid #82671e;background:#fff8df}
+
+/* Hidden application surfaces must override grid/flex layout rules. */
+[hidden]{display:none!important}
