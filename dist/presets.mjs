@@ -1,3 +1,4 @@
+import {applyHatco} from './hatco.mjs';
 import {newProject} from './store.mjs';
 import {modules} from './modules.mjs';
 
@@ -166,12 +167,15 @@ export function createPilotBep(seed={}){
 }
 
 export function createPresetProject(type,seed={}){
+  if(type==='hatco'||type==='humain')return applyHatco(createDefaultBep(),type==='humain',seed);
   if(type==='pilot')return createPilotBep(seed);
   if(type==='blank')return newProject(seed);
   return createDefaultBep(seed);
 }
 
 export const builtInPresetSummary=()=>[
+  {id:'hatco',name:'HATCO Company Standard',description:'Complete proposed company procedures; project inputs only at mobilization.',sections:modules.length},
+  {id:'humain',name:'HUMAIN — HATCO BEP',description:'Company standard with HATCO, JLL and WSP project context.',sections:modules.length},
   {id:'default',name:'Default BEP',description:'A controlled generic baseline derived from the supplied Post-Contract BEP structure.',sections:modules.length},
   {id:'pilot',name:'Pilot BEP',description:'A populated anonymized example for training, testing and document preview.',sections:modules.length},
   {id:'blank',name:'Blank project',description:'Only the minimum built-in application defaults.',sections:modules.length}

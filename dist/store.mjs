@@ -28,7 +28,7 @@ export function validateWorkspace(raw){
     const defaults=defaultLists();for(const key of Object.keys(defaults)){if(p.lists[key]===undefined)p.lists[key]=structuredClone(defaults[key]);if(!Array.isArray(p.lists[key])||p.lists[key].length>500)throw new Error(`Invalid table: ${key}`);}
     for(const m of modules)if(!['required','optional','pending','not_applicable'].includes(p.moduleStates[m.id]))throw new Error(`Invalid module status: ${m.id}`);
     if(!/^#[0-9a-f]{6}$/i.test(p.style.accent)||!['sans','serif'].includes(p.style.font))throw new Error('Invalid document identity settings.');
-    if(p.preset===undefined)p.preset='blank';if(!['blank','default','pilot'].includes(p.preset))p.preset='blank';
+    if(p.preset===undefined)p.preset='blank';if(!['blank','default','pilot','hatco','humain'].includes(p.preset))p.preset='blank';
     if(p.accessRole===undefined)p.accessRole='owner';if(!['owner','editor','viewer'].includes(p.accessRole))p.accessRole='owner';
     if(p.ownerId===undefined)p.ownerId='';if(typeof p.ownerId!=='string'||p.ownerId.length>100)throw new Error('Invalid project owner reference.');
     if(p.dbVersion===undefined)p.dbVersion=0;p.dbVersion=Number(p.dbVersion)||0;if(!Number.isInteger(p.dbVersion)||p.dbVersion<0)throw new Error('Invalid cloud project version.');
