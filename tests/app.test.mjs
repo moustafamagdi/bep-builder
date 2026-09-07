@@ -88,3 +88,46 @@ test('baseline, criteria and responsibility changes require renewed approval',()
 test('completeness is passed applicable plan checks divided by total; approvals and execution are excluded',()=>{const p=completeProject();p.fields.projectName='';p.lists.approvals=[];const r=reviewProject(p);assert.equal(r.score,Math.floor(100*r.completed/r.total));assert.equal(r.completed,r.checks.filter(c=>c.passed).length);assert.equal(r.total,r.checks.length);assert.ok(r.score<100);const q=completeProject();q.lists.approvals=[];q.lists.deliverables[0].actualDate='not-a-date';const s=reviewProject(q);assert.equal(s.score,100);assert.equal(s.ready,false);assert.ok(s.executionIssues.some(x=>x.message.includes('actualDate')));assert.equal(s.critical,0);});
 test('conditional 4D requirements only enter the completeness denominator when enabled',()=>{const p=completeProject();const count=reviewProject(p).total;p.fields.fourDTool='';p.fields.programmeSource='';assert.equal(reviewProject(p).score,100);p.moduleStates.fourD='optional';const r=reviewProject(p);assert.equal(r.total,count+1);assert.ok(r.issues.some(x=>x.code==='fourD'));p.moduleStates.fourD='not_applicable';assert.equal(reviewProject(p).total,count);});
 test('legacy whole-document approvals are preserved exactly and never silently re-scoped',()=>{const p=completeProject();const stable=v=>Array.isArray(v)?v.map(stable):v&&typeof v==='object'?Object.fromEntries(Object.keys(v).sort().map(k=>[k,stable(v[k])])):v;const snapshot=JSON.stringify(stable({fields:p.fields,lists:Object.fromEntries(Object.entries(p.lists).filter(([k])=>k!=='approvals')),notes:p.notes,moduleStates:p.moduleStates,style:p.style,attachments:p.attachments}));p.lists.approvals.forEach(row=>{delete row.approvalScope;row.contentSnapshot=snapshot;});assert.equal(reviewProject(p).reviewed,true);p.lists.deliverables[0].forecastDate='2099-01-01';assert.equal(reviewProject(p).reviewed,false);approve(p);assert.equal(p.lists.approvals[0].approvalScope,'bep-plan-v2');p.lists.deliverables[0].forecastDate='2099-02-01';assert.equal(reviewProject(p).reviewed,true);});
+
+test('company standard release requires metadata and creates immutable version lineage',async()=>{
+  const {draftStandard,releaseStandard,isReleasedStandard}=await import('../dist/standards.mjs');
+  const source=createPresetProject('hatco'),draft=draftStandard(source,{name:'HATCO standard',sourceReference:'STD-01',version:'1.0'});
+  assert.throws(()=>releaseStandard(draft),/required/);
+  draft.data.standard.releaseNotes='Initial controlled baseline';
+  const released=releaseStandard(draft);assert.ok(isReleasedStandard(released));assert.equal(draft.data.standard.status,'draft');
+  const next=draftStandard(released);assert.notEqual(next.id,released.id);assert.equal(next.version,'');assert.equal(next.data.standard.parentId,released.id);
+  next.data.fields.contractor='Revised contractor';assert.notEqual(released.data.fields.contractor,next.data.fields.contractor);
+  next.version='1.0';next.data.standard.releaseNotes='Revision';assert.throws(()=>releaseStandard(next,[released]),/already exists/);
+  next.version='1.1';assert.equal(releaseStandard(next,[released]).data.standard.familyId,released.data.standard.familyId);
+  assert.throws(()=>releaseStandard(released),/new version/);
+});
+
+test('pinned standards survive section saves and releases; changing the pin requires new approval',async()=>{
+  const {draftStandard,releaseStandard,standardLink}=await import('../dist/standards.mjs');
+  const p=completeProject(),draft=draftStandard(createPresetProject('hatco'),{name:'HATCO standard',sourceReference:'STD-01',version:'1.0'});
+  draft.data.standard.releaseNotes='Initial';const standard=releaseStandard(draft);
+  p.standardLink=standardLink(standard,'fill');assert.equal(approvalValid(p,p.lists.approvals[0]),false);
+  p.lists.approvals.forEach((_,i)=>bindApproval(p,i));createRelease(p);
+  const old=structuredClone(p.standardLink),snapshot=sectionSnapshot(p,'__project__');assert.deepEqual(snapshot.standardLink,old);
+  applySectionSnapshot(p,'coordination',sectionSnapshot(p,'coordination'));assert.deepEqual(p.standardLink,old);
+  p.standardLink.version='1.1';assert.equal(approvalValid(p,p.lists.approvals[0]),false);
+  restoreRelease(p,p.releases.at(-1).id);assert.deepEqual(p.standardLink,old);
+  const html=buildDocument(p,reviewProject(p));assert.match(html,/Company standard baseline/);assert.match(html,/STD-01/);
+  standard.data.fields.contractor='Later source change';assert.notEqual(p.fields.contractor,standard.data.fields.contractor);
+});
+
+test('restoring an older issue clears a later standard pin',()=>{
+  const p=completeProject();createRelease(p);delete p.releases[0].snapshot.standardLink;
+  p.standardLink={name:'Later standard',version:'2.0'};restoreRelease(p,p.releases[0].id);assert.equal(p.standardLink,null);
+});
+
+test('shared register suggestions deduplicate and leave imported values and other sections unchanged',async()=>{
+  const {sharedOptions}=await import('../dist/standards.mjs');const p=newProject();
+  p.lists.parties=[{name:'HATCO'},{name:'HATCO'}];p.lists.team=[{name:'Ahmed',role:'BIM Manager'}];
+  p.lists.milestones=[{name:'Design gate'}];p.lists.detailedResponsibilities=[{id:'PKG-01'}];
+  const before=structuredClone(p);
+  assert.deepEqual(sharedOptions(p,'deliverables','producer'),['HATCO','Ahmed','BIM Manager']);
+  assert.deepEqual(sharedOptions(p,'deliverables','milestone'),['Design gate']);
+  assert.deepEqual(sharedOptions(p,'deliverables','packageId'),['PKG-01']);
+  assert.deepEqual(sharedOptions(p,'team','organization'),['HATCO']);assert.deepEqual(p,before);
+});

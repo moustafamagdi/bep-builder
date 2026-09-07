@@ -41,6 +41,7 @@ export function validateWorkspace(raw){
     if(!Array.isArray(p.style.logos)||p.style.logos.length>4||p.style.logos.some(logo=>!logo||typeof logo.id!=='string'||typeof logo.path!=='string'||typeof logo.name!=='string'||!['cover','both'].includes(logo.placement)||logo.path.length>1000||logo.name.length>255))throw new Error('Invalid project logo configuration.');
     while(p.style.logos.length<p.style.logoCount)p.style.logos.push({id:`logo-slot-${p.style.logos.length+1}`,path:'',name:'',placement:'both'});
     if(p.attachments===undefined)p.attachments=[];if(!Array.isArray(p.attachments)||p.attachments.length>200||p.attachments.some(file=>!file||typeof file.id!=='string'||typeof file.path!=='string'||typeof file.name!=='string'||file.id.length>100||file.path.length>1000||file.name.length>255||!Number.isFinite(file.size)||file.size<0||file.size>26214400))throw new Error('Invalid attachment register.');
+    if(p.standardLink!=null&&(!p.standardLink||typeof p.standardLink!=='object'||['id','familyId','name','version','sourceReference','mode','appliedAt'].some(k=>typeof p.standardLink[k]!=='string'||p.standardLink[k].length>1000)))throw new Error('Invalid company standard link.');
     if(p.appliedTemplates===undefined)p.appliedTemplates=[];if(!Array.isArray(p.appliedTemplates)||p.appliedTemplates.length>200)throw new Error('Invalid applied template register.');
     if(p.templateConflicts===undefined)p.templateConflicts=[];if(!Array.isArray(p.templateConflicts)||p.templateConflicts.length>500)throw new Error('Invalid template conflict register.');
   }
@@ -61,10 +62,10 @@ export function cloneProject(project){const copy=structuredClone(project);copy.i
 export function createRelease(project){
   if(!reviewProject(project).ready)throw new Error('Resolve data gaps and record current review and authorization evidence before freezing an issue.');
   const number=project.releases.length+1,at=new Date().toISOString();
-  const snapshot={fields:structuredClone(project.fields),lists:structuredClone(project.lists),moduleStates:structuredClone(project.moduleStates),notes:structuredClone(project.notes),attachments:structuredClone(project.attachments||[]),appliedTemplates:structuredClone(project.appliedTemplates||[]),templateConflicts:structuredClone(project.templateConflicts||[]),style:structuredClone(project.style)};
+  const snapshot={standardLink:structuredClone(project.standardLink||null),fields:structuredClone(project.fields),lists:structuredClone(project.lists),moduleStates:structuredClone(project.moduleStates),notes:structuredClone(project.notes),attachments:structuredClone(project.attachments||[]),appliedTemplates:structuredClone(project.appliedTemplates||[]),templateConflicts:structuredClone(project.templateConflicts||[]),style:structuredClone(project.style)};
   project.releases.push({id:uid(),number,revision:project.fields.revision||`R${number}`,issueDate:project.fields.issueDate||at.slice(0,10),createdAt:at,readiness:reviewProject(project).score,snapshot});project.updatedAt=at;return number;
 }
-export function restoreRelease(project,id){const rel=project.releases.find(r=>r.id===id);if(!rel)throw new Error('Issue not found.');Object.assign(project,structuredClone(rel.snapshot));for(const key of Object.keys(defaultLists()))project.lists[key]??=[];project.updatedAt=new Date().toISOString();}
+export function restoreRelease(project,id){const rel=project.releases.find(r=>r.id===id);if(!rel)throw new Error('Issue not found.');Object.assign(project,{standardLink:null},structuredClone(rel.snapshot));for(const key of Object.keys(defaultLists()))project.lists[key]??=[];project.updatedAt=new Date().toISOString();}
 
 const requiredFields=['projectName','projectCode','description','documentCode','revision','issueDate','issuePurpose','preparedBy','contractor','client','consultant','designResponsibility','informationRole','coordinationScope','cde','reviewWorkflow','namingPattern','drawingStrategy','crs','verticalDatum','units','loinSystem','coordinationCycle','issueWorkflow','asBuiltMethod'];
 const fieldLabels=Object.fromEntries(Object.values(fieldGroups).flat().map(([key,label])=>[key,label]));
