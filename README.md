@@ -66,3 +66,11 @@ EIR compliance is under Information; detailed responsibilities and mobilization 
 Readiness separates data completeness from evidence of technical review and issue authorization. Approval records are references to externally obtained decisions, not electronic signatures or an approval-request service. Binding records the exact reviewed content; changing content invalidates the binding. CSV/XLSX imports cannot carry this binding and need review and re-binding. Public previews omit private approval snapshots.
 
 The server section-save allowlists in `supabase/schema.sql` include the new registers. Approval and change records are managed under the existing whole-project Review reservation.
+
+## Phase 1 — BEP plan versus execution tracking
+
+The completeness percentage is passed applicable plan checks divided by the total evaluated plan checks (rounded down); approval records and execution follow-up are separate. It is not a certification score. Mobilization plans require an owner, resources, checker, date and measurable acceptance criteria. Tests default to Before production, and risk actions default to During execution. An explicitly selected BEP issue gate remains a release blocker. Production prerequisite status is an informational check, not authorization in a construction or model-authoring system.
+
+New approvals bind the BEP plan scope (bep-plan-v2). Live delivery forecast/actual dates, current revision, status and evidence, exchange status, and ordinary execution test/risk results are excluded. Baseline dates, scope, responsibilities, criteria, risk assessments and mitigation plans remain included. Explicit BEP issue conditions and authorized mobilization exclusions remain included. Legacy whole-document approval bindings remain exact and require deliberate review/re-binding to adopt the narrower plan scope. No existing approval is silently converted.
+
+The BEP preview/PDF prints plan fields only; execution fields remain editable in the workspace and export through CSV/XLSX. Existing project values and frozen snapshot records are preserved. No database schema change is needed: the existing reserved-section save procedure stores the new nested row fields.

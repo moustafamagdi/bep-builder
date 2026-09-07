@@ -1,4 +1,4 @@
-import {governanceIssues,unresolved,validDate,approvalValid} from './governance.mjs';
+import {governanceChecks,unresolved,validDate,approvalValid} from './governance.mjs';
 import {modules,defaultLists,defaultModuleStates,fieldGroups} from './modules.mjs';
 
 export const STORAGE_KEY='bep-studio-workspace-v2';
@@ -68,32 +68,42 @@ export function restoreRelease(project,id){const rel=project.releases.find(r=>r.
 
 const requiredFields=['projectName','projectCode','description','documentCode','revision','issueDate','issuePurpose','preparedBy','contractor','client','consultant','designResponsibility','informationRole','coordinationScope','cde','reviewWorkflow','namingPattern','drawingStrategy','crs','verticalDatum','units','loinSystem','coordinationCycle','issueWorkflow','asBuiltMethod'];
 const fieldLabels=Object.fromEntries(Object.values(fieldGroups).flat().map(([key,label])=>[key,label]));
-export function reviewProject(project){
-  const issues=governanceIssues(project);
-  for(const fields of Object.values(fieldGroups))for(const [key,,type,,options] of fields)if(type==='select'&&project.fields[key]&&!options.includes(project.fields[key]))issues.push({severity:'critical',code:`field:${key}`,message:`Choose a valid value for ${key}.`});
-  if(!validDate(project.fields.issueDate))issues.push({severity:'critical',code:'field:issueDate',message:'Set a valid issue date.'});
-  for(const key of requiredFields)if(unresolved(project.fields[key]))issues.push({severity:'critical',code:`field:${key}`,message:`Required information is incomplete: ${fieldLabels[key]||key}`});
-  for(const m of modules){
-    const status=project.moduleStates[m.id];if(status==='pending')issues.push({severity:'critical',code:`module:${m.id}`,message:`Module status is undecided: ${m.ar}`});
-    if(m.required&&status==='not_applicable')issues.push({severity:'critical',code:`required-module:${m.id}`,message:`A core module was excluded without an alternative: ${m.ar}`});
-    if(status!=='not_applicable'&&m.depends)for(const dep of m.depends)if(project.moduleStates[dep]==='not_applicable')issues.push({severity:'critical',code:`dependency:${m.id}`,message:`${m.ar} requires ${modules.find(x=>x.id===dep)?.ar}`});
+export function reviewProject(project,today=new Date().toISOString().slice(0,10)){
+  const checks=governanceChecks(project,today),advisories=[];
+  const add=(passed,code,message)=>checks.push({passed:Boolean(passed),scope:'plan',severity:'critical',code,message});
+  const enabled=id=>['required','optional'].includes(project.moduleStates[id]);
+  const optionalFieldModules={fourDTool:'fourD',programmeSource:'fourD',fiveDTool:'fiveD',assetSchema:'assets',cobieVersion:'cobie'};
+  for(const fields of Object.values(fieldGroups))for(const [key,,type,,options] of fields){
+    if(optionalFieldModules[key]&&!enabled(optionalFieldModules[key]))continue;
+    if(type==='select'&&project.fields[key])add(options.includes(project.fields[key]),`field:${key}`,`Choose a valid value for ${key}.`);
   }
-  if(!project.lists.references.length)issues.push({severity:'critical',code:'references',message:'No references or information requirements have been added.'});
-  if(!project.lists.responsibilities.length)issues.push({severity:'critical',code:'responsibilities',message:'The responsibility matrix is empty.'});
-  if(!project.lists.software.length)issues.push({severity:'critical',code:'software',message:'No software products or versions have been added.'});
-  if(!project.lists.exchanges.length)issues.push({severity:'critical',code:'exchanges',message:'The information exchange schedule is empty.'});
-  if(!project.lists.models.length)issues.push({severity:'critical',code:'models',message:'The model register is empty.'});
-  if(!project.lists.loin.length)issues.push({severity:'critical',code:'loin',message:'The level of information need matrix is empty.'});
-  if(!project.lists.deliverables.length)issues.push({severity:'critical',code:'deliverables',message:'The delivery plan is empty.'});
-  if(!project.lists.clashes.length&&project.moduleStates.coordination!=='not_applicable')issues.push({severity:'critical',code:'clashes',message:'No coordination test matrix has been added.'});
-  if(['required','optional'].includes(project.moduleStates.fourD)&&(unresolved(project.fields.fourDTool)||unresolved(project.fields.programmeSource)))issues.push({severity:'critical',code:'fourD',message:'4D is enabled without a tool and programme source.'});
-  if(['required','optional'].includes(project.moduleStates.cobie)&&unresolved(project.fields.cobieVersion))issues.push({severity:'critical',code:'cobie',message:'COBie is enabled without a specified version.'});
-  if(project.moduleStates.assets!=='not_applicable'&&!project.lists.assetRequirements.length)issues.push({severity:'warning',code:'asset-requirements',message:'Asset information is enabled but its requirement matrix is empty.'});
-  if(project.lists.decisions.some(row=>['Open','Proposed'].includes(row.status)))issues.push({severity:'critical',code:'open-decisions',message:'Open decisions or assumptions remain in the project register.'});
-  if(project.lists.appendices.some(row=>['Removed','Not received','Missing'].includes(row.status)))issues.push({severity:'critical',code:'missing-appendices',message:'One or more referenced appendices are missing or removed.'});
-  if(project.templateConflicts?.length)issues.push({severity:'warning',code:'template-conflicts',message:`${project.templateConflicts.length} template conflict${project.templateConflicts.length===1?' remains':'s remain'} for review.`});
-  for(const key of ['software','references'])project.lists[key].forEach((row,i)=>{if((key==='software'&&unresolved(row.version))||(key==='references'&&row.status==='Not received'))issues.push({severity:'critical',code:`row:${key}:${i}`,message:`${key} row ${i+1}: confirm the project reference/version.`});});
-  const critical=issues.filter(i=>i.severity==='critical').length,warnings=issues.length-critical;
-  const score=Math.max(0,Math.round(100-(critical*6+warnings*2)));
-  const dataComplete=critical===0;const approvals=project.lists.approvals||[];const reviewed=approvalValid(project,approvals.filter(r=>r.stage==='Technical review').at(-1)||{});const authorized=approvalValid(project,approvals.filter(r=>r.stage==='Issue authorization').at(-1)||{});const approvalIssues=[];for(const [stage,ok] of [['Technical review',reviewed],['Issue authorization',authorized]])if(!ok)approvalIssues.push({severity:'approval',code:'approvals',message:`${stage}: record approval evidence for this revision and bind it to the current content.`});return {issues:[...issues,...approvalIssues],critical,warnings,score,dataComplete,reviewed,authorized,ready:dataComplete&&reviewed&&authorized};
+  add(validDate(project.fields.issueDate),'field:issueDate','Set a valid issue date.');
+  for(const key of requiredFields)add(!unresolved(project.fields[key]),`field:${key}`,`Required information is incomplete: ${fieldLabels[key]||key}`);
+  for(const m of modules){
+    const status=project.moduleStates[m.id];
+    add(['required','optional','not_applicable'].includes(status),`module:${m.id}`,`Decide whether ${m.title} applies.`);
+    if(m.required)add(status!=='not_applicable',`required-module:${m.id}`,`A core module was excluded: ${m.title}`);
+    if(enabled(m.id)&&m.depends)for(const dep of m.depends)add(enabled(dep),`dependency:${m.id}`,`${m.title} requires ${modules.find(x=>x.id===dep)?.title}`);
+  }
+  const requiredSchedules={references:['title','code','revision','source'],responsibilities:['activity','responsible','accountable'],software:['use','product','version','exchange'],exchanges:['exchange','milestone','sender','receiver','format'],models:['code','discipline','zone','producer'],loin:['element','milestone','geometry','information','documentation','responsible']};
+  if(enabled('coordination'))requiredSchedules.clashes=['name','setA','setB','type','tolerance','owner'];
+  if(enabled('assets'))requiredSchedules.assetRequirements=['asset','property','source','milestone','format','responsible'];
+  for(const [key,fields] of Object.entries(requiredSchedules)){
+    const rows=project.lists[key]||[];add(rows.length>0,key,`Complete the ${key} schedule.`);
+    rows.forEach((row,i)=>{for(const field of fields)add(!unresolved(row[field]),`row:${key}:${i}`,`${key} row ${i+1}: complete ${field}.`);});
+  }
+  if(enabled('fourD'))add(!unresolved(project.fields.fourDTool)&&!unresolved(project.fields.programmeSource),'fourD','4D requires an agreed tool and programme source.');
+  if(enabled('cobie'))add(!unresolved(project.fields.cobieVersion),'cobie','COBie requires an agreed version.');
+  (project.lists.decisions||[]).forEach((row,i)=>add(['Agreed','Closed'].includes(row.status),`row:decisions:${i}`,'Resolve this BEP decision or assumption before issue.'));
+  (project.lists.appendices||[]).forEach((row,i)=>add(!['Removed','Not received','Missing'].includes(row.status),`row:appendices:${i}`,'Supply this referenced appendix before issue.'));
+  (project.lists.references||[]).forEach((row,i)=>add(row.status!=='Not received',`row:references:${i}`,'Obtain this project reference.'));
+  if(project.templateConflicts?.length)advisories.push({severity:'warning',code:'template-conflicts',message:`${project.templateConflicts.length} template conflicts need review.`});
+  const planChecks=checks.filter(c=>c.scope==='plan'),failed=planChecks.filter(c=>!c.passed),completed=planChecks.length-failed.length,total=planChecks.length;
+  const score=total?Math.floor(100*completed/total):0;
+  const executionIssues=checks.filter(c=>c.scope!=='plan'&&!c.passed),productionChecks=checks.filter(c=>c.scope==='production');
+  const productionReady=productionChecks.every(c=>c.passed)&&!(project.lists.mobilization||[]).some(r=>unresolved(r.owner)||unresolved(r.resources)||unresolved(r.acceptance)||unresolved(r.checker)||!validDate(r.date))&&(project.lists.mobilization||[]).length>0;
+  const dataComplete=failed.length===0&&total>0,approvals=project.lists.approvals||[];
+  const reviewed=approvalValid(project,approvals.filter(r=>r.stage==='Technical review').at(-1)||{}),authorized=approvalValid(project,approvals.filter(r=>r.stage==='Issue authorization').at(-1)||{});
+  const approvalIssues=[];for(const [stage,ok] of [['Technical review',reviewed],['Issue authorization',authorized]])if(!ok)approvalIssues.push({severity:'approval',code:'approvals',message:`${stage}: record approval evidence for this BEP plan and revision.`});
+  return {issues:[...failed,...advisories,...approvalIssues],critical:failed.length,warnings:advisories.length,score,completed,total,checks:planChecks,dataComplete,reviewed,authorized,ready:dataComplete&&reviewed&&authorized,executionIssues,productionReady:dataComplete&&productionReady,executionCount:executionIssues.length};
 }
