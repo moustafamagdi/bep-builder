@@ -240,3 +240,13 @@ export function mergeProjectSets(localProjects,cloudProjects){
   }
   return [...merged.values()];
 }
+
+export async function fetchReviewDiscussion(projectId){
+  const session=await activeSession();return await api(`/rest/v1/bep_review_comments?project_id=eq.${encodeURIComponent(projectId)}&order=created_at.desc,id.desc&limit=500`,{token:session.access_token})||[];
+}
+export async function fetchProjectActivity(projectId,before=''){
+  const session=await activeSession();return await api(`/rest/v1/bep_activity?project_id=eq.${encodeURIComponent(projectId)}&order=id.desc&limit=50${before?`&id=lt.${encodeURIComponent(before)}`:''}`,{token:session.access_token})||[];
+}
+export async function writeReviewComment(projectId,section,body,commentId=null,resolved=false){
+  const session=await activeSession();return api('/rest/v1/rpc/write_bep_comment',{method:'POST',token:session.access_token,body:{p_project_id:projectId,p_section:section,p_body:body,p_comment_id:commentId,p_resolved:resolved}});
+}

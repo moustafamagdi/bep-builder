@@ -177,3 +177,13 @@ test('bulk section snapshot can be undone without reverting another section',asy
   p.lists.parties.push({name:'Independent organization update'});applySectionSnapshot(p,'coordination',before);
   assert.notEqual(p.lists.deliverables[0].producer,'Changed team');assert.equal(p.lists.parties.at(-1).name,'Independent organization update');
 });
+
+test('version comparison matches unique row IDs and reports exact changed values without mutating releases',async()=>{
+ const {compareRevisions}=await import('../dist/revision-diff.mjs');const a={fields:{name:'Before'},lists:{deliverables:[{id:'D1',date:'2026-09-01'},{id:'D2',date:'2026-09-02'}]}},b=structuredClone(a);b.fields.name='After';b.lists.deliverables.reverse();b.lists.deliverables[1].date='2026-10-01';const original=structuredClone(a),diff=compareRevisions(a,b);
+ assert.ok(diff.some(c=>c.path==='lists.deliverables[D1].date'&&c.before==='2026-09-01'&&c.after==='2026-10-01'));assert.ok(diff.some(c=>c.path.endsWith('rowOrder')));assert.deepEqual(a,original);
+});
+test('version comparison handles additions, removals, identical objects and hidden approval snapshots',async()=>{
+ const {compareRevisions,diffValue}=await import('../dist/revision-diff.mjs');assert.deepEqual(compareRevisions({fields:{a:'1',b:'2'}},{fields:{b:'2',a:'1'}}),[]);
+ const diff=compareRevisions({lists:{team:[{name:'A'}]}},{lists:{team:[]},standardLink:{version:'1'}});assert.ok(diff.some(c=>c.kind==='Removed'));assert.ok(diff.some(c=>c.kind==='Added'));
+ assert.doesNotMatch(diffValue({contentSnapshot:'PRIVATE',person:'A'}),/PRIVATE/);
+});
