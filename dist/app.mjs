@@ -1,3 +1,5 @@
+import {mountTableTools,resetTableSelections,clearTableFilters} from './table-ui.mjs';
+import {baselineToken,hasControlledBaseline} from './table-tools.mjs';
 import {isReleasedStandard,standardLink,sharedOptions} from './standards.mjs';
 import {setupStandards} from './standards-ui.mjs';
 import {governanceSchemas,bindApproval,approvalValid,deliverySummary,isOperationalField,gateFor} from './governance.mjs';
@@ -15,6 +17,7 @@ import {lockKeyForView,sectionSnapshot,applySectionSnapshot,sectionChanged} from
 
 const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
 let workspace=loadWorkspace(),active=null,activeView='project',saveTimer,toastTimer,cloudTimer,cloudPromise=null,lockTimer,lockBusy=false,sectionDirty=false,activeLock=null,undoStack=[],redoStack=[],historyBaseline='',session=null,logoObjectUrls=[],templates=[],publicShares=[],projectInvites=[],collaborators=[],lastShareLink='',lastInviteLink='',pendingImport=null,pendingTemplate=null,csvTarget='';
+const planPermits=new Map();
 const CLOUD_OWNER_KEY='bep-studio-cloud-owner-v1';
 const EDIT_CLIENT_KEY='bep-studio-editor-client-v1';
 let EDIT_CLIENT_ID=sessionStorage.getItem(EDIT_CLIENT_KEY);
@@ -190,7 +193,7 @@ function applyHistory(direction){
   if(saveTimer){clearTimeout(saveTimer);saveTimer=null;recordHistory();}
   const source=direction==='undo'?undoStack:redoStack,target=direction==='undo'?redoStack:undoStack;
   if(!source.length)return;
-  const currentState=JSON.stringify(sectionSnapshot(active,activeLock.key)),nextState=source.pop();target.push(currentState);
+  resetTableSelections();const currentState=JSON.stringify(sectionSnapshot(active,activeLock.key)),nextState=source.pop();target.push(currentState);
   applySectionSnapshot(active,activeLock.key,JSON.parse(nextState));historyBaseline=nextState;sectionDirty=true;persist();renderFormView();renderReadiness();updateHistoryButtons();
   notify(direction==='undo'?'Last change undone.':'Change restored.');
 }
@@ -205,7 +208,7 @@ function renderSharing(root){
 function enforceAccess(root){
   if(active.accessRole==='viewer'&&activeView!=='sharing'){
     root.insertAdjacentHTML('afterbegin','<div class="readonly-banner"><strong>View-only access</strong><span>Editing controls are disabled for this shared BEP.</span></div>');
-    root.querySelectorAll('input,select,textarea,button').forEach(element=>{if(!element.matches('[data-open-preview],[data-issue-code],[data-export-csv],[data-download-file]'))element.disabled=true;});
+    root.querySelectorAll('input,select,textarea,button').forEach(element=>{if(!element.matches('[data-open-preview],[data-issue-code],[data-export-csv],[data-download-file],[data-table-read],[data-directory-view]'))element.disabled=true;});
     return;
   }
   const key=lockKeyForView(activeView);if(!key||!activeLock)return;
@@ -214,7 +217,7 @@ function enforceAccess(root){
   }else{
     const ownerAction=accessOwner()?'<button class="button ghost danger-text" id="force-section-lock">Force release</button>':'';
     root.insertAdjacentHTML('afterbegin',`<div class="lock-banner blocked"><div><strong>Editing by ${esc(activeLock.holderEmail||'another editor')}</strong><span>This section is read-only until the reservation is released or expires.</span></div><div><button class="button secondary" id="retry-section-lock">Try again</button>${ownerAction}</div></div>`);
-    root.querySelectorAll('input,select,textarea,button').forEach(element=>{if(!element.matches('#retry-section-lock,#force-section-lock,[data-open-preview],[data-issue-code],[data-export-csv],[data-download-file]'))element.disabled=true;});
+    root.querySelectorAll('input,select,textarea,button').forEach(element=>{if(!element.matches('#retry-section-lock,#force-section-lock,[data-open-preview],[data-issue-code],[data-export-csv],[data-download-file],[data-table-read],[data-directory-view]'))element.disabled=true;});
   }
 }
 function renderFormView(){
@@ -230,13 +233,16 @@ function renderFormView(){
   else if(activeView==='review')renderReview(root);
   else if(activeView==='sharing')renderSharing(root);
   else if(activeView==='appearance')renderAppearance(root);
-  bindFormEvents();enforceAccess(root);
+  bindFormEvents();
+  const tableProject=active,tableLock=activeLock?.key;
+  mountTableTools(root,{project:tableProject,getProject:()=>active,canEdit:()=>active?.id===tableProject.id&&activeLock?.acquired&&activeLock.key===tableLock&&active.accessRole!=='viewer',canPlanEdit:()=>canEditPlan(),notify,commit:(key,rows)=>{clearTimeout(saveTimer);saveTimer=null;recordHistory();active.lists[key]=rows;sectionDirty=true;recordHistory();persist();resetTableSelections();renderFormView();renderReadiness();notify('Selected rows updated. Undo restores this bulk operation in one step.');}});
+  protectPlanControls(root);enforceAccess(root);
   $('#retry-section-lock')?.addEventListener('click',()=>retryEditingLock());
   $('#force-section-lock')?.addEventListener('click',async()=>{if(await confirmAction('Force release section','The current editor will lose their reservation and any unsaved changes may be discarded.'))retryEditingLock({force:true});});
   updateHistoryButtons();
 }
 function renderReview(root){const r=reviewProject(active);root.innerHTML=`<section class="review-hero ${r.ready?'ready':''}"><div><span>${r.ready?'READY FOR ISSUE REVIEW':'WORKING DRAFT'}</span><h2>${r.score}% BEP plan completeness</h2><p>${r.completed} of ${r.total} applicable checks passed. This is not a project progress or ISO certification score.</p><p>Plan: ${r.dataComplete?'complete':'incomplete'} · Review: ${r.reviewed?'recorded':'pending'} · Authorization: ${r.authorized?'recorded':'pending'}</p><p>${r.ready?'Data checks passed and review / authorization evidence matches the current content.':'Complete the critical items before freezing a formal issue.'}</p></div><button class="button primary" id="create-release" ${r.ready?'':'disabled'}>Freeze issue ${esc(active.fields.revision||'')}</button></section><section class="form-card"><div class="card-heading"><h2>BEP issue checks</h2><span>${r.critical} data gaps · ${r.warnings} warning${r.warnings===1?'':'s'}</span></div><div class="issue-list">${r.issues.length?r.issues.map(i=>`<button type="button" class="issue ${i.severity}" data-issue-code="${esc(i.code)}"><b>${i.severity==='critical'?'Resolve':i.severity==='approval'?'Approval':'Warning'}</b><span>${esc(i.message)}</span><em>Go to issue →</em></button>`).join(''):'<div class="success-state">No recorded gaps.</div>'}</div></section><section class="form-card execution-review"><h2>Execution follow-up</h2><p>Production prerequisites: ${r.productionReady?'recorded checks passed':'pending'}. ${r.executionCount} follow-up items. These do not block BEP issue unless explicitly marked BEP issue.</p><p>This is a readiness check, not a construction permit or a production lock in external tools.</p><div class="issue-list">${r.executionIssues.map(i=>`<button type="button" class="issue execution" data-issue-code="${esc(i.code)}"><b>${i.scope==='production'?'Before production':'Follow up'}</b><span>${esc(i.message)}</span><em>Go to item →</em></button>`).join('')||'<p>No recorded execution follow-up items.</p>'}</div></section>${listEditor('changeLog')}${listEditor('approvals')}<section class="form-card"><div class="card-heading"><h2>Frozen issues</h2><span>Unaffected by changes to the current draft</span></div><div class="release-list">${active.releases.length?active.releases.slice().reverse().map(r=>`<article><div><strong>${esc(r.revision)}</strong><span>Issue ${r.number} · ${esc(r.issueDate)} · ${r.readiness}% ready</span></div><button class="button ghost" data-restore-release="${r.id}">Restore as draft</button></article>`).join(''):'<p class="empty-cell">No frozen issues yet.</p>'}</div></section>`;}
-async function goToIssue(code){const target=issueTarget(code,active);await showView(target.view);requestAnimationFrame(()=>{const element=$(target.selector);if(element){let parent=element.parentElement;while(parent){if(parent.tagName==='DETAILS')parent.open=true;parent=parent.parentElement;}}const focus=target.focus?$(target.focus):element;if(!element){notify('The related section could not be located.');return;}element.scrollIntoView({behavior:'smooth',block:'center'});element.classList.add('issue-target');setTimeout(()=>element.classList.remove('issue-target'),2200);focus?.focus?.({preventScroll:true});});}
+async function goToIssue(code){clearTableFilters();const target=issueTarget(code,active);await showView(target.view);requestAnimationFrame(()=>{const element=$(target.selector);if(element){let parent=element.parentElement;while(parent){if(parent.tagName==='DETAILS')parent.open=true;parent=parent.parentElement;}}const focus=target.focus?$(target.focus):element;if(!element){notify('The related section could not be located.');return;}element.scrollIntoView({behavior:'smooth',block:'center'});element.classList.add('issue-target');setTimeout(()=>element.classList.remove('issue-target'),2200);focus?.focus?.({preventScroll:true});});}
 const safeFileName=name=>name.normalize('NFKD').replace(/[^a-zA-Z0-9._-]+/g,'-').replace(/-+/g,'-').slice(-120)||'file';
 async function addAttachments(files){
   if(!session){notify('Sign in before uploading private files.');openAuth();return;}
@@ -260,10 +266,10 @@ async function deleteProjectStorage(project){const paths=[...(project.attachment
 function bindFormEvents(){
   $$('[data-directory-view]').forEach(el=>el.addEventListener('click',()=>showView(el.dataset.directoryView)));
   $$('[data-field]').forEach(el=>el.addEventListener('input',()=>{active.fields[el.dataset.field]=el.value;changed();}));
-  $$('[data-list]').forEach(el=>el.addEventListener('input',()=>{active.lists[el.dataset.list][+el.dataset.row][el.dataset.col]=el.value;changed();if(['parties','team','milestones','detailedResponsibilities'].includes(el.dataset.list))refreshSharedSuggestions();}));
+  $$('[data-list]').forEach(el=>el.addEventListener('input',()=>{const key=el.dataset.list,col=el.dataset.col,row=active.lists[key][+el.dataset.row];if(key!=='approvals'&&!canEditPlan()&&(!isOperationalField(key,col,row)||!isOperationalField(key,col,{...row,[col]:el.value}))){el.value=row[col]||'';notify('Start a controlled change before changing the approved plan.');return;}row[col]=el.value;changed();if(['parties','team','milestones','detailedResponsibilities'].includes(el.dataset.list))refreshSharedSuggestions();}));
   $$('[data-col="gate"]').forEach(el=>el.addEventListener('change',()=>renderFormView()));
-  $$('[data-add-row]').forEach(btn=>btn.addEventListener('click',()=>{const key=btn.dataset.addRow;active.lists[key].push(Object.fromEntries(listSchemas[key].columns.map(([column,,type,options])=>[column,type==='select'?options[0]:'' ])));changed();renderFormView();}));
-  $$('[data-delete-row]').forEach(btn=>btn.addEventListener('click',()=>{active.lists[btn.dataset.deleteRow].splice(+btn.dataset.row,1);changed();renderFormView();}));
+  $$('[data-add-row]').forEach(btn=>btn.addEventListener('click',()=>{const key=btn.dataset.addRow;resetTableSelections();active.lists[key].push(Object.fromEntries(listSchemas[key].columns.map(([column,,type,options])=>[column,type==='select'?options[0]:'' ])));changed();renderFormView();}));
+  $$('[data-delete-row]').forEach(btn=>btn.addEventListener('click',()=>{resetTableSelections();active.lists[btn.dataset.deleteRow].splice(+btn.dataset.row,1);changed();renderFormView();}));
   $$('[data-export-csv]').forEach(btn=>btn.addEventListener('click',()=>{const key=btn.dataset.exportCsv;downloadBlob(new Blob([toCsv(active.lists[key],listSchemas[key])],{type:'text/csv;charset=utf-8'}),`${active.fields.projectCode||'BEP'}-${key}.csv`);}));
   $$('[data-import-csv]').forEach(btn=>btn.addEventListener('click',()=>{csvTarget=btn.dataset.importCsv;$('#csv-import').click();}));
   $$('[data-module]').forEach(el=>el.addEventListener('change',()=>{active.moduleStates[el.dataset.module]=el.value;const mod=modules.find(m=>m.id===el.dataset.module);if(el.value!=='not_applicable'&&mod?.depends)for(const dep of mod.depends)if(active.moduleStates[dep]==='not_applicable')active.moduleStates[dep]='required';changed();renderFormView();notify('The module and its dependencies were updated.');}));
@@ -446,4 +452,33 @@ $('#manage-standards').addEventListener('click',()=>{if(!session){notify('Sign i
 
 function refreshSharedSuggestions(){
   $$('#form-view input[data-list]').forEach(el=>{const values=sharedOptions(active,el.dataset.list,el.dataset.col);if(!values.length&&!el.list)return;const id=`shared-${el.dataset.list}-${el.dataset.row}-${el.dataset.col}`;let list=document.getElementById(id);if(!list){list=document.createElement('datalist');list.id=id;el.after(list);el.setAttribute('list',id);}list.innerHTML=values.map(v=>`<option value="${esc(v)}"></option>`).join('');});
+}
+
+function canEditPlan(){
+  if(!active)return false;if(!hasControlledBaseline(active))return true;
+  const permit=planPermits.get(`${active.id}:${activeLock?.key}`);
+  return Boolean(permit&&permit.token===baselineToken(active)&&active.lists.changeLog.some(row=>row.controlId===permit.entryId));
+}
+function protectPlanControls(root){
+  if(!hasControlledBaseline(active)||!lockKeyForView(activeView))return;
+  const allowed=canEditPlan();root.insertAdjacentHTML('afterbegin',`<section class="plan-protection"><div><strong>${allowed?'Controlled plan change open':'Approved baseline protected'}</strong><p>${allowed?'Changes in this section are linked to a recorded reason. Renew plan approval before the next issue.':'Plan fields are protected against accidental changes. Operational tracking remains editable. Starting a controlled change records its reason and makes the previous approval stale.'}</p></div>${allowed?'':'<button class="button secondary" id="begin-plan-change">Start controlled change</button>'}</section>`);
+  if(!allowed){
+    root.querySelectorAll('[data-field],[data-module],[data-note],[data-style],[data-logo-upload],[data-logo-placement],#logo-count,[data-remove-logo],#attachment-upload,[data-delete-file],[data-apply-template],#import-workbook,[data-import-csv],#clear-conflicts,[data-restore-release]').forEach(el=>el.disabled=true);
+    root.querySelectorAll('[data-list]').forEach(el=>{const key=el.dataset.list,row=active.lists[key][Number(el.dataset.row)];if(key!=='approvals'&&!isOperationalField(key,el.dataset.col,row))el.disabled=true;});
+    root.querySelectorAll('[data-add-row],[data-delete-row]').forEach(el=>{if((el.dataset.addRow||el.dataset.deleteRow)!=='approvals')el.disabled=true;});
+  }
+  root.querySelector('#begin-plan-change')?.addEventListener('click',beginControlledChange);
+}
+function beginControlledChange(){
+  if(!activeLock?.acquired||active.accessRole==='viewer')return;
+  const projectId=active.id,targetView=activeView,targetKey=activeLock.key;
+  const dialog=document.createElement('dialog');dialog.innerHTML='<form><h2>Start controlled plan change</h2><p>Record the reason and instruction reference before editing this section. The change register needs a brief whole-project reservation; other active editors must release their sections first. Previous approval will become stale immediately.</p><label>Reason / intended changes<textarea name="reason" required maxlength="2000" rows="4"></textarea></label><label>Instruction / decision reference<input name="reference" required maxlength="300" placeholder="e.g. RFI-025 or internal review reference"></label><div class="dialog-actions"><button type="button" class="button ghost">Cancel</button><button type="submit" class="button primary">Record & start change</button></div></form>';document.body.append(dialog);dialog.querySelector('[type="button"]').onclick=()=>dialog.close();dialog.onclose=()=>dialog.remove();
+  dialog.querySelector('form').onsubmit=async event=>{
+    event.preventDefault();const data=new FormData(event.currentTarget),reason=String(data.get('reason')).trim(),reference=String(data.get('reference')).trim();if(!reason||!reference){notify('A reason and reference are required.');return;}
+    dialog.close();if(active?.id!==projectId)return;
+    await showView('review');if(active?.id!==projectId||!activeLock?.acquired||activeLock.key!=='__project__'){notify('The change was not started. The project must be available for a whole-project reservation.');return;}
+    const entryId=crypto.randomUUID();recordHistory();active.lists.changeLog.push({controlId:entryId,revision:active.fields.revision,date:new Date().toISOString().slice(0,10),sections:viewMeta[targetView][0],reason:`Controlled change opened: ${reason}`,author:session?.user?.email||active.fields.preparedBy||'Project editor',reference});sectionDirty=true;recordHistory();persist();
+    if(!await flushCurrentSection()){notify('The reason could not be saved. Resolve cloud sync before editing the plan.');renderFormView();return;}
+    planPermits.set(`${active.id}:${targetKey}`,{token:baselineToken(active),entryId});await showView(targetView);notify('Change reason recorded. Plan editing is enabled for this section in this tab.');
+  };dialog.showModal();
 }

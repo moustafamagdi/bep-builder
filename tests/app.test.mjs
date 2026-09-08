@@ -131,3 +131,49 @@ test('shared register suggestions deduplicate and leave imported values and othe
   assert.deepEqual(sharedOptions(p,'deliverables','packageId'),['PKG-01']);
   assert.deepEqual(sharedOptions(p,'team','organization'),['HATCO']);assert.deepEqual(p,before);
 });
+
+test('table filtering preserves original row indices and combines search terms with status',async()=>{
+  const {matchingRows}=await import('../dist/table-tools.mjs');
+  const rows=[{id:'D1',title:'MEP model',status:'Planned'},{id:'D2',title:'ARC model',status:'Submitted'},{id:'D3',title:'MEP drawing',status:'Submitted'}];
+  assert.deepEqual(matchingRows(rows,'mep','Submitted'),[2]);assert.deepEqual(matchingRows(rows,'MODEL arc'),[1]);assert.deepEqual(matchingRows(rows,'missing'),[]);assert.deepEqual(matchingRows(rows),[0,1,2]);
+});
+test('bulk changes affect exactly the selected rows, reject stale data and protect identifiers',async()=>{
+  const {previewBulk,applyBulk}=await import('../dist/table-tools.mjs');
+  const rows=[{id:'D1',producer:'A'},{id:'D2',producer:'B'},{id:'D3',producer:'C'}],before=structuredClone(rows);
+  const preview=previewBulk(rows,'deliverables',[0,2],'producer','HATCO'),updated=applyBulk(rows,preview);
+  assert.deepEqual(rows,before);assert.equal(updated[1].producer,'B');assert.equal(updated[0].producer,'HATCO');assert.equal(updated[2].producer,'HATCO');assert.equal(preview.plan,true);
+  rows[0].producer='A changed';assert.throws(()=>applyBulk(rows,preview),/schedule changed/);
+  assert.throws(()=>previewBulk(rows,'deliverables',[0],'id','SAME'),/cannot/);
+  assert.throws(()=>previewBulk(rows,'approvals',[0],'status','Approved'),/cannot/);
+  assert.throws(()=>previewBulk(rows,'deliverables',[99],'producer','A'),/current rows/);
+});
+test('bulk validation rejects invalid dates, negative duration and unsupported enum values',async()=>{
+  const {previewBulk}=await import('../dist/table-tools.mjs');const rows=[{}];
+  assert.throws(()=>previewBulk(rows,'deliverables',[0],'date','2026-02-30'),/valid date/);
+  assert.throws(()=>previewBulk(rows,'deliverables',[0],'productionDays','-1'),/non-negative/);
+  assert.throws(()=>previewBulk(rows,'deliverables',[0],'status','Approved'),/listed value/);
+  assert.equal(previewBulk(rows,'deliverables',[0],'date','').changes.length,0);
+});
+test('operational bulk changes preserve approval but mobilization exclusions and baseline dates are plan changes',async()=>{
+  const {previewBulk,applyBulk}=await import('../dist/table-tools.mjs');const p=completeProject();
+  const preview=previewBulk(p.lists.deliverables,'deliverables',[0],'forecastDate','2099-01-01');assert.equal(preview.plan,false);
+  p.lists.deliverables=applyBulk(p.lists.deliverables,preview);assert.equal(approvalValid(p,p.lists.approvals[0]),true);
+  assert.equal(previewBulk(p.lists.deliverables,'deliverables',[0],'date','2099-01-01').plan,true);
+  const mobilization=[{status:'Planned',gate:'Before production'}];
+  assert.equal(previewBulk(mobilization,'mobilization',[0],'status','Passed').plan,false);
+  assert.equal(previewBulk(mobilization,'mobilization',[0],'status','Not applicable').plan,true);
+  assert.equal(previewBulk([{status:'Planned',gate:'BEP issue'}],'mobilization',[0],'status','Passed').plan,true);
+});
+test('opening a controlled change invalidates approval and whole-project undo restores the recorded baseline',async()=>{
+  const {baselineToken,hasControlledBaseline}=await import('../dist/table-tools.mjs');const p=completeProject(),token=baselineToken(p),snapshot=sectionSnapshot(p,'__project__');
+  assert.equal(hasControlledBaseline(p),true);assert.equal(hasControlledBaseline(newProject()),false);
+  p.lists.changeLog.push({revision:p.fields.revision,date:'2026-09-07',sections:'Delivery',reason:'Controlled change opened: revised milestones',reference:'RFI-001',author:'BIM lead'});
+  assert.equal(approvalValid(p,p.lists.approvals[0]),false);assert.equal(baselineToken(p),token);
+  applySectionSnapshot(p,'__project__',snapshot);assert.equal(approvalValid(p,p.lists.approvals[0]),true);
+});
+test('bulk section snapshot can be undone without reverting another section',async()=>{
+  const {previewBulk,applyBulk}=await import('../dist/table-tools.mjs');const p=completeProject(),before=sectionSnapshot(p,'coordination');
+  p.lists.deliverables=applyBulk(p.lists.deliverables,previewBulk(p.lists.deliverables,'deliverables',[0],'producer','Changed team'));
+  p.lists.parties.push({name:'Independent organization update'});applySectionSnapshot(p,'coordination',before);
+  assert.notEqual(p.lists.deliverables[0].producer,'Changed team');assert.equal(p.lists.parties.at(-1).name,'Independent organization update');
+});
